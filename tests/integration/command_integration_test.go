@@ -133,7 +133,7 @@ func TestCommandIntegration(t *testing.T) {
 			t.Logf("Generated plan: Command=%s, Args=%v", plan.Command, plan.Args)
 
 			// Execute the command
-			response, err := commandExecutor.Execute(context.Background(), plan, tc.query, tc.urls)
+			response, err := commandExecutor.Execute(context.Background(), plan, tc.query)
 			if err != nil {
 				t.Errorf("Failed to execute command: %v", err)
 				return
@@ -207,7 +207,7 @@ func TestCommandRegistry(t *testing.T) {
 				plan.Args["filter"] = "test filter"
 			}
 
-			response, err := commandExecutor.Execute(context.Background(), plan, "test query", []string{})
+			response, err := commandExecutor.Execute(context.Background(), plan, "test query")
 
 			// We expect some commands to fail due to missing data, but not due to unregistered commands
 			if err != nil {

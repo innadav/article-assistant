@@ -198,24 +198,287 @@ go run ./tests/scripts/test_analysis_service.go
 ### POST /ingest
 Ingest a new article from URL.
 
+**Request:**
 ```json
 {
   "url": "https://example.com/article"
 }
 ```
 
-### POST /chat
-Chat-based queries with natural language.
-
+**Success Response:**
 ```json
 {
-  "query": "What is this article about?",
-  "urls": ["https://example.com/article"] // optional
+  "status": "success",
+  "message": "URL ingested successfully"
 }
+```
+
+**Error Response:**
+```json
+{
+  "error": "Failed to ingest URL: invalid URL format"
+}
+```
+
+**Examples:**
+```bash
+# Ingest a news article
+curl -X POST http://localhost:8080/ingest \
+  -H "Content-Type: application/json" \
+  -d '{"url": "https://edition.cnn.com/2025/07/27/business/trump-us-eu-trade-deal"}'
+
+# Ingest a tech article
+curl -X POST http://localhost:8080/ingest \
+  -H "Content-Type: application/json" \
+  -d '{"url": "https://techcrunch.com/2025/07/26/ai-startup-funding-news"}'
+```
+
+### POST /chat
+Chat-based queries with natural language. The system automatically extracts URLs from queries when needed.
+
+**Request:**
+```json
+{
+  "query": "What is this article about?"
+}
+```
+
+**Success Response:**
+```json
+{
+  "answer": "Trump claims to have made the 'biggest deal ever' as the US and EU outline a trade framework.",
+  "sources": [
+    {
+      "id": "uuid-here",
+      "url": "https://edition.cnn.com/2025/07/27/business/trump-us-eu-trade-deal",
+      "title": "Trump touts 'biggest deal ever made' as US and EU sketch trade framework"
+    }
+  ],
+  "usage": {
+    "tokens": 150,
+    "cost": 0.0003
+  },
+  "task": "summary",
+  "response_type": "text",
+  "plan": {
+    "command": "summary",
+    "args": {
+      "urls": ["https://edition.cnn.com/2025/07/27/business/trump-us-eu-trade-deal"]
+    }
+  }
+}
+```
+
+**Error Response:**
+```json
+{
+  "error": "Failed to create query plan: invalid query format"
+}
+```
+
+**Query Examples:**
+
+#### Summary Queries
+```bash
+# Summary with URL in query
+curl -X POST http://localhost:8080/chat \
+  -H "Content-Type: application/json" \
+  -d '{"query": "Summary of https://edition.cnn.com/2025/07/27/business/trump-us-eu-trade-deal"}'
+
+# General summary request
+curl -X POST http://localhost:8080/chat \
+  -H "Content-Type: application/json" \
+  -d '{"query": "What is this article about?"}'
+```
+
+#### Keyword/Topic Extraction
+```bash
+# Extract keywords from specific article
+curl -X POST http://localhost:8080/chat \
+  -H "Content-Type: application/json" \
+  -d '{"query": "What are the main keywords in https://example.com/article?"}'
+
+# Get topics from article
+curl -X POST http://localhost:8080/chat \
+  -H "Content-Type: application/json" \
+  -d '{"query": "What topics does this article cover?"}'
+```
+
+#### Sentiment Analysis
+```bash
+# Analyze sentiment
+curl -X POST http://localhost:8080/chat \
+  -H "Content-Type: application/json" \
+  -d '{"query": "What is the sentiment of this article?"}'
+```
+
+#### Article Comparison
+```bash
+# Compare two articles
+curl -X POST http://localhost:8080/chat \
+  -H "Content-Type: application/json" \
+  -d '{"query": "Compare https://example.com/article1 and https://example.com/article2"}'
+```
+
+#### Search Queries
+```bash
+# Find articles by topic
+curl -X POST http://localhost:8080/chat \
+  -H "Content-Type: application/json" \
+  -d '{"query": "What articles discuss AI?"}'
+
+# Find most positive article about a topic
+curl -X POST http://localhost:8080/chat \
+  -H "Content-Type: application/json" \
+  -d '{"query": "Most positive article about AI regulation"}'
+```
+
+#### Entity Analysis
+```bash
+# Get top entities across all articles
+curl -X POST http://localhost:8080/chat \
+  -H "Content-Type: application/json" \
+  -d '{"query": "What are the top entities?"}'
 ```
 
 ### GET /health
 Health check endpoint.
+
+**Response:**
+```json
+{
+  "status": "healthy"
+}
+```
+
+**Example:**
+```bash
+curl http://localhost:8080/health
+```
+
+## ⚠️ Exception Handling
+
+### Common Error Scenarios
+
+#### 1. Invalid URL Format
+**Request:**
+```bash
+curl -X POST http://localhost:8080/ingest \
+  -H "Content-Type: application/json" \
+  -d '{"url": "invalid-url"}'
+```
+
+**Response:**
+```json
+{
+  "error": "Failed to ingest URL: invalid URL format"
+}
+```
+
+#### 2. Article Not Found
+**Request:**
+```bash
+curl -X POST http://localhost:8080/chat \
+  -H "Content-Type: application/json" \
+  -d '{"query": "Summary of https://nonexistent.com/article"}'
+```
+
+**Response:**
+```json
+{
+  "answer": "Article not found: https://nonexistent.com/article",
+  "sources": null,
+  "usage": {
+    "tokens": 0,
+    "cost": 0
+  },
+  "task": "summary",
+  "response_type": "",
+  "plan": {
+    "command": "summary",
+    "args": {
+      "urls": ["https://nonexistent.com/article"]
+    }
+  }
+}
+```
+
+#### 3. Missing Query Parameter
+**Request:**
+```bash
+curl -X POST http://localhost:8080/chat \
+  -H "Content-Type: application/json" \
+  -d '{}'
+```
+
+**Response:**
+```json
+{
+  "error": "Invalid request body"
+}
+```
+
+#### 4. LLM Planning Failure
+**Request:**
+```bash
+curl -X POST http://localhost:8080/chat \
+  -H "Content-Type: application/json" \
+  -d '{"query": "Invalid query format that breaks LLM parsing"}'
+```
+
+**Response:**
+```json
+{
+  "error": "Failed to create query plan: failed to parse plan JSON"
+}
+```
+
+#### 5. Unsupported Command
+**Request:**
+```bash
+curl -X POST http://localhost:8080/chat \
+  -H "Content-Type: application/json" \
+  -d '{"query": "Execute unsupported command"}'
+```
+
+**Response:**
+```json
+{
+  "answer": "Command not supported: unsupported_command",
+  "task": "unsupported_command",
+  "sources": null,
+  "usage": {
+    "tokens": 0,
+    "cost": 0
+  }
+}
+```
+
+### Error Response Format
+
+All error responses follow this structure:
+```json
+{
+  "error": "Error message describing what went wrong",
+  "status_code": 400,
+  "timestamp": "2025-01-03T12:00:00Z"
+}
+```
+
+### HTTP Status Codes
+
+- **200 OK**: Successful request
+- **400 Bad Request**: Invalid request format or parameters
+- **405 Method Not Allowed**: Wrong HTTP method
+- **500 Internal Server Error**: Server-side error (LLM failure, database issues, etc.)
+
+### Rate Limiting
+
+The API implements intelligent caching to prevent excessive LLM calls:
+- **Cached Responses**: Returned instantly (< 0.01s)
+- **New Queries**: Processed with LLM (0.5-1.4s)
+- **Cache Duration**: 24 hours for chat responses
+- **Background Cleanup**: Expired cache entries removed every hour
 
 ## 🗄️ Database Schema
 

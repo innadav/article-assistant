@@ -19,7 +19,7 @@ func TestExecutorCommandPattern(t *testing.T) {
 
 	// Test that unknown command returns error message
 	plan := &domain.Plan{Command: "unknown_command"}
-	resp, err := ex.Execute(context.Background(), plan, "test query", []string{})
+	resp, err := ex.Execute(context.Background(), plan, "test query")
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
 	}
@@ -92,7 +92,7 @@ func TestCommandRegistration(t *testing.T) {
 
 	// Test that registered command can be executed
 	plan := &domain.Plan{Command: "test_summary"}
-	resp, err := ex.Execute(context.Background(), plan, "test query", []string{})
+	resp, err := ex.Execute(context.Background(), plan, "test query")
 
 	// Should not return "Command not supported" error
 	if strings.Contains(resp.Answer, "Command not supported") {

@@ -61,9 +61,8 @@ type ChatCache struct {
 }
 
 type ChatRequest struct {
-	Query string   `json:"query,omitempty"`
-	Task  string   `json:"task"` // summary, sentiment, compare, tone, search, more_positive, top_entities
-	URLs  []string `json:"urls,omitempty"`
+	Query string `json:"query,omitempty"`
+	Task  string `json:"task"` // summary, sentiment, compare, tone, search, more_positive, top_entities
 }
 
 type ChatResponse struct {

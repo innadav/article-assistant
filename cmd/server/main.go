@@ -132,7 +132,7 @@ func main() {
 
 		// Step 2: Execute the plan
 		commandExecutor := executor.NewExecutorWithCommands(repo, llmClient)
-		response, err := commandExecutor.Execute(ctx, plan, req.Query, req.URLs)
+		response, err := commandExecutor.Execute(ctx, plan, req.Query)
 		if err != nil {
 			http.Error(w, fmt.Sprintf("Failed to execute query plan: %v", err), 500)
 			return

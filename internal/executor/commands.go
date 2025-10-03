@@ -14,7 +14,7 @@ type SummaryCommand struct {
 	Repo *repository.Repo
 }
 
-func (c *SummaryCommand) Execute(ctx context.Context, plan *domain.Plan, query string, urls []string) (*domain.ChatResponse, error) {
+func (c *SummaryCommand) Execute(ctx context.Context, plan *domain.Plan, query string) (*domain.ChatResponse, error) {
 	// Extract URL from args
 	var targetURL string
 	if urlsVal, ok := plan.Args["urls"]; ok {
@@ -23,8 +23,6 @@ func (c *SummaryCommand) Execute(ctx context.Context, plan *domain.Plan, query s
 				targetURL = urlStr
 			}
 		}
-	} else if len(urls) > 0 {
-		targetURL = urls[0]
 	} else {
 		return &domain.ChatResponse{
 			Answer: "Article URL required for summary",
@@ -56,7 +54,7 @@ func (c *SummaryCommand) Execute(ctx context.Context, plan *domain.Plan, query s
 }
 
 // Helper functions
-func extractURLs(plan *domain.Plan, urls []string) []string {
+func extractURLs(plan *domain.Plan) []string {
 	var targetURLs []string
 	if urlsVal, ok := plan.Args["urls"]; ok {
 		if urlSlice, ok := urlsVal.([]interface{}); ok {
@@ -66,8 +64,6 @@ func extractURLs(plan *domain.Plan, urls []string) []string {
 				}
 			}
 		}
-	} else if len(urls) > 0 {
-		targetURLs = urls
 	}
 	return targetURLs
 }
@@ -85,8 +81,8 @@ type FetchKeywordsOrTopicsCommand struct {
 	Repo *repository.Repo
 }
 
-func (c *FetchKeywordsOrTopicsCommand) Execute(ctx context.Context, plan *domain.Plan, _ string, urls []string) (*domain.ChatResponse, error) {
-	targetURLs := extractURLs(plan, urls)
+func (c *FetchKeywordsOrTopicsCommand) Execute(ctx context.Context, plan *domain.Plan, _ string) (*domain.ChatResponse, error) {
+	targetURLs := extractURLs(plan)
 	if len(targetURLs) == 0 {
 		return errorResponse(plan.Command, "URLs required to extract keywords/topics"), nil
 	}
@@ -129,9 +125,9 @@ type FetchSentimentCommand struct {
 	Repo *repository.Repo
 }
 
-func (c *FetchSentimentCommand) Execute(ctx context.Context, plan *domain.Plan, query string, urls []string) (*domain.ChatResponse, error) {
+func (c *FetchSentimentCommand) Execute(ctx context.Context, plan *domain.Plan, query string) (*domain.ChatResponse, error) {
 	// Extract URLs from args
-	targetURLs := extractURLs(plan, urls)
+	targetURLs := extractURLs(plan)
 	if len(targetURLs) == 0 {
 		return errorResponse(plan.Command, "URLs required for sentiment analysis"), nil
 	}
@@ -179,7 +175,7 @@ type CompareCommand struct {
 	LLM  *llm.OpenAIClient
 }
 
-func (c *CompareCommand) Execute(ctx context.Context, plan *domain.Plan, query string, urls []string) (*domain.ChatResponse, error) {
+func (c *CompareCommand) Execute(ctx context.Context, plan *domain.Plan, query string) (*domain.ChatResponse, error) {
 	// Extract URLs from args
 	var targetURLs []string
 	if urlsVal, ok := plan.Args["urls"]; ok {
@@ -190,8 +186,6 @@ func (c *CompareCommand) Execute(ctx context.Context, plan *domain.Plan, query s
 				}
 			}
 		}
-	} else if len(urls) > 0 {
-		targetURLs = urls
 	}
 
 	if len(targetURLs) < 2 {
@@ -244,7 +238,7 @@ type ToneKeyDfferencesCommand struct {
 	LLM  *llm.OpenAIClient
 }
 
-func (c *ToneKeyDfferencesCommand) Execute(ctx context.Context, plan *domain.Plan, query string, urls []string) (*domain.ChatResponse, error) {
+func (c *ToneKeyDfferencesCommand) Execute(ctx context.Context, plan *domain.Plan, query string) (*domain.ChatResponse, error) {
 	// Extract URLs from args
 	var targetURLs []string
 	if urlsVal, ok := plan.Args["urls"]; ok {
@@ -255,8 +249,6 @@ func (c *ToneKeyDfferencesCommand) Execute(ctx context.Context, plan *domain.Pla
 				}
 			}
 		}
-	} else if len(urls) > 0 {
-		targetURLs = urls
 	}
 
 	if len(targetURLs) < 2 {
@@ -309,7 +301,7 @@ type FetchMostPositivesByFilter struct {
 	LLM  *llm.OpenAIClient
 }
 
-func (c *FetchMostPositivesByFilter) Execute(ctx context.Context, plan *domain.Plan, query string, urls []string) (*domain.ChatResponse, error) {
+func (c *FetchMostPositivesByFilter) Execute(ctx context.Context, plan *domain.Plan, query string) (*domain.ChatResponse, error) {
 	// Extract filter from args
 	var filter string
 	if filterVal, ok := plan.Args["filter"]; ok {
@@ -366,7 +358,7 @@ type FetchTopEntitiesFromDBCommand struct {
 	Repo *repository.Repo
 }
 
-func (c *FetchTopEntitiesFromDBCommand) Execute(ctx context.Context, plan *domain.Plan, query string, urls []string) (*domain.ChatResponse, error) {
+func (c *FetchTopEntitiesFromDBCommand) Execute(ctx context.Context, plan *domain.Plan, query string) (*domain.ChatResponse, error) {
 	// Extract URLs from args for get_top_db_entities
 	var targetURLs []string
 	if urlsVal, ok := plan.Args["urls"]; ok {
@@ -377,8 +369,6 @@ func (c *FetchTopEntitiesFromDBCommand) Execute(ctx context.Context, plan *domai
 				}
 			}
 		}
-	} else if len(urls) > 0 {
-		targetURLs = urls
 	}
 
 	entities, err := c.Repo.GetTopEntities(ctx, 10, targetURLs)
@@ -412,7 +402,7 @@ type FilterFromVectorDBByFilter struct {
 	LLM  *llm.OpenAIClient
 }
 
-func (c *FilterFromVectorDBByFilter) Execute(ctx context.Context, plan *domain.Plan, query string, urls []string) (*domain.ChatResponse, error) {
+func (c *FilterFromVectorDBByFilter) Execute(ctx context.Context, plan *domain.Plan, query string) (*domain.ChatResponse, error) {
 	// Extract filter from args
 	var filter string
 	if filterVal, ok := plan.Args["filter"]; ok {

@@ -1,12 +1,13 @@
 package llm
 
 import (
+	"article-assistant/internal/domain"
 	"context"
 	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
-	"article-assistant/internal/domain"
+
 	"github.com/sashabaranov/go-openai"
 )
 
@@ -86,7 +87,11 @@ func (o *OpenAIClient) Summarize(ctx context.Context, text string) (string, erro
 		Temperature: 0,
 	})
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("failed to create chat completion for summarization (model=%s, tokens=%d): %w", model, maxOutputTokens, err)
+	}
+
+	if len(resp.Choices) == 0 {
+		return "", fmt.Errorf("no choices returned from OpenAI API for summarization")
 	}
 
 	return resp.Choices[0].Message.Content, nil
@@ -107,7 +112,11 @@ func (o *OpenAIClient) Compare(ctx context.Context, summaries []string) (string,
 		Temperature: 0, // Consistent comparisons
 	})
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("failed to create chat completion for comparison (model=%s, summaries=%d): %w", model, len(summaries), err)
+	}
+
+	if len(resp.Choices) == 0 {
+		return "", fmt.Errorf("no choices returned from OpenAI API for comparison")
 	}
 
 	return resp.Choices[0].Message.Content, nil

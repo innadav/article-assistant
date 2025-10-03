@@ -172,7 +172,6 @@ func TestE2EIngestionWithServer(t *testing.T) {
 	// Test chat query to verify article was ingested
 	chatReq := domain.ChatRequest{
 		Query: fmt.Sprintf("Give me a summary of %s", testURL),
-		URLs:  []string{testURL},
 	}
 
 	chatJSON, err := json.Marshal(chatReq)
