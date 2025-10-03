@@ -1,15 +1,15 @@
 package ingest
 
 import (
+	"article-assistant/internal/domain"
+	"article-assistant/internal/llm"
+	"article-assistant/internal/repository"
 	"context"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
 	"strings"
-
-	"article-assistant/internal/domain"
-	"article-assistant/internal/llm"
-	"article-assistant/internal/repository"
 
 	"github.com/google/uuid"
 )
@@ -20,20 +20,40 @@ type Service struct {
 }
 
 func (s *Service) IngestURL(ctx context.Context, url string) error {
-	html, title, err := fetchHTML(url)
+	// Calculate URL hash for caching
+	urlHash := calculateURLHash(url)
+
+	// Check if article already exists
+	existingArticle, err := s.Repo.GetArticleByURL(ctx, url)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to check existing article: %w", err)
 	}
-	text := StripHTMLBasic(html)
+
+	// If article already exists, skip processing
+	if existingArticle != nil {
+		log.Printf("📄 Article already processed, skipping: %s", url)
+		return nil
+	}
+
+	// Fetch content
+	contentInfo, err := fetchHTMLWithHeaders(url)
+	if err != nil {
+		return fmt.Errorf("failed to fetch content: %w", err)
+	}
+
+	log.Printf("📄 Processing new article: %s", url)
+
+	// Process the content
+	text := StripHTMLBasic(contentInfo.HTML)
 
 	sum, err := s.LLM.Summarize(ctx, text)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to summarize: %w", err)
 	}
 
 	emb, err := s.LLM.Embed(ctx, sum)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to embed: %w", err)
 	}
 
 	// Extract all semantic data in a single LLM call (faster and cheaper)
@@ -78,10 +98,11 @@ func (s *Service) IngestURL(ctx context.Context, url string) error {
 		}
 	}
 
+	// Create article with URL hash
 	a := &domain.Article{
 		ID:             uuid.New().String(),
 		URL:            url,
-		Title:          title,
+		Title:          contentInfo.Title,
 		Summary:        sum,
 		Embedding:      emb,
 		Entities:       entities,
@@ -89,7 +110,9 @@ func (s *Service) IngestURL(ctx context.Context, url string) error {
 		Topics:         topics,
 		Sentiment:      semanticAnalysis.Sentiment,
 		SentimentScore: semanticAnalysis.SentimentScore,
+		URLHash:        urlHash,
 	}
+
 	return s.Repo.UpsertArticle(ctx, a)
 }
 

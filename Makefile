@@ -92,6 +92,7 @@ help:
 	@echo "  test-integration   - Run integration tests only"
 	@echo "  test-e2e          - Run e2e tests only"
 	@echo "  test-ingestion    - Run ingestion e2e tests only"
+	@echo "  test-comprehensive - Run comprehensive API tests with all articles"
 	@echo "  test-coverage     - Run tests with coverage report"
 	@echo "  build             - Build application binaries"
 	@echo "  run-server        - Run the server"

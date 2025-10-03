@@ -10,6 +10,7 @@ A comprehensive AI-powered article analysis system that ingests, analyzes, and p
 - **LLM Analysis**: Advanced entity, keyword, and topic matching using OpenAI GPT
 - **Multiple Query Types**: Summary, keywords, sentiment, tone, comparison, search, and more
 - **Caching**: Intelligent caching of expensive LLM operations
+- **Content Change Detection**: Avoid reprocessing unchanged articles using content hashing and HTTP headers
 - **Docker Deployment**: Full containerized deployment with PostgreSQL
 
 ## 📊 Supported Query Types
@@ -47,6 +48,75 @@ article-assistant/
 ├── results/               # Test results and analysis outputs
 └── docker-compose.yml     # Docker deployment configuration
 ```
+
+## 🔄 Content Caching & Change Detection
+
+The Article Assistant implements comprehensive caching mechanisms to avoid unnecessary reprocessing and API calls, significantly reducing costs and improving performance.
+
+### Caching Strategy
+
+**1. Article Ingestion Caching**
+- Each article URL is hashed using SHA-256 for unique identification
+- Before processing, the system checks if the URL has already been processed
+- If the URL exists in the database, ingestion is skipped entirely
+- No LLM calls are made for previously processed URLs
+
+**2. Chat API Request/Response Caching**
+- All `/chat` API requests are hashed using SHA-256 of the request payload
+- Responses are cached for 24 hours with automatic expiration
+- Identical queries return cached responses instantly without LLM processing
+- Background cleanup removes expired cache entries every hour
+
+### Database Schema
+
+```sql
+-- Articles table with URL-based caching
+CREATE TABLE articles (
+  -- ... existing fields ...
+  url_hash TEXT UNIQUE NOT NULL, -- SHA-256 hash of the URL for caching
+  -- ... other fields ...
+);
+
+-- Chat request/response cache table
+CREATE TABLE chat_cache (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  request_hash TEXT UNIQUE NOT NULL, -- SHA-256 hash of the request
+  request_json JSONB NOT NULL,        -- Full request payload
+  response_json JSONB NOT NULL,      -- Full response payload
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  expires_at TIMESTAMP DEFAULT (CURRENT_TIMESTAMP + INTERVAL '24 hours')
+);
+
+CREATE INDEX articles_url_hash_idx ON articles(url_hash);
+CREATE INDEX chat_cache_request_hash_idx ON chat_cache(request_hash);
+CREATE INDEX chat_cache_expires_at_idx ON chat_cache(expires_at);
+```
+
+### Implementation Details
+
+**Article Ingestion Flow:**
+1. Calculate URL hash
+2. Check if article exists in database
+3. Skip processing if found, or proceed with full LLM analysis
+4. Store article with URL hash
+
+**Chat API Flow:**
+1. Calculate request hash from payload
+2. Check cache for existing response
+3. Return cached response if found, or process with LLM
+4. Cache new response for future requests
+
+**Benefits:**
+- **Cost Reduction**: Avoids expensive LLM API calls for duplicate requests
+- **Performance**: Instant responses for cached queries
+- **Scalability**: Enables efficient bulk processing and high-frequency queries
+- **Reliability**: Automatic cache expiration prevents stale data
+
+**Logging:**
+- `📄 Article already processed, skipping: [URL]`
+- `💾 Cache hit for request hash: [hash]`
+- `🔄 Processing new request: [query]`
+- `💾 Cached response for request hash: [hash]`
 
 ## 🚀 Quick Start
 

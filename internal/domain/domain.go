@@ -45,8 +45,19 @@ type Article struct {
 	Entities       []SemanticEntity  `json:"entities"`
 	Keywords       []SemanticKeyword `json:"keywords"`
 	Topics         []SemanticTopic   `json:"topics"`
+	URLHash        string            `json:"url_hash"` // SHA-256 hash of the URL for caching
 	CreatedAt      time.Time         `json:"created_at"`
 	UpdatedAt      time.Time         `json:"updated_at"`
+}
+
+// ChatCache represents a cached chat request/response
+type ChatCache struct {
+	ID           string      `json:"id"`
+	RequestHash  string      `json:"request_hash"`
+	RequestJSON  interface{} `json:"request_json"`
+	ResponseJSON interface{} `json:"response_json"`
+	CreatedAt    time.Time   `json:"created_at"`
+	ExpiresAt    time.Time   `json:"expires_at"`
 }
 
 type ChatRequest struct {

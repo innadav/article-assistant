@@ -6,9 +6,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
-
 	"article-assistant/internal/domain"
-
 	"github.com/sashabaranov/go-openai"
 )
 
@@ -38,45 +36,92 @@ func getModelLimits(model string) (int, int) {
 	}
 }
 
-// calculateMaxTokens calculates safe max tokens for output based on input size and model limits
-func calculateMaxTokens(inputText string, model string) int {
+// calculateBudgets returns safe (maxInputTokens, maxOutputTokens)
+func calculateBudgets(inputText string, model string) (int, int) {
 	contextLimit, outputLimit := getModelLimits(model)
 
-	// Estimate input tokens (rough: ~4 chars per token)
+	// Estimate token count (~4 chars per token)
 	inputTokens := len(inputText) / 4
 
-	// Add overhead for prompt and formatting (~200 tokens for semantic extraction)
+	// Reserve budget for overhead and output
 	promptOverhead := 200
-	totalInputTokens := inputTokens + promptOverhead
+	reserveForOutput := outputLimit
 
-	// Calculate available tokens for output
-	availableForOutput := contextLimit - totalInputTokens
-
-	// Take the minimum of desired, available, and model output limit
-	maxTokens := availableForOutput
-	if availableForOutput < maxTokens {
-		maxTokens = availableForOutput
-	}
-	if outputLimit < maxTokens {
-		maxTokens = availableForOutput
+	// Ensure we leave enough room for overhead + output
+	maxInputTokens := contextLimit - reserveForOutput - promptOverhead
+	if maxInputTokens < 0 {
+		maxInputTokens = 0
 	}
 
-	fmt.Printf("Token calc: input=%d, available=%d, desired=%d, final=%d\n",
-		inputTokens, availableForOutput, maxTokens)
+	// Ensure at least some output tokens are available
+	maxOutputTokens := reserveForOutput
+	if maxOutputTokens > outputLimit {
+		maxOutputTokens = outputLimit
+	}
+	if maxOutputTokens < 50 {
+		maxOutputTokens = 50
+	}
 
-	return maxTokens
+	fmt.Printf("Token budget: input=%d (allowed=%d), output=%d\n",
+		inputTokens, maxInputTokens, maxOutputTokens)
+
+	return maxInputTokens, maxOutputTokens
 }
 
 func (o *OpenAIClient) Summarize(ctx context.Context, text string) (string, error) {
 	model := openai.GPT3Dot5Turbo
-	maxTokens := calculateMaxTokens(text, model)
-	truncatedText := truncateTextForModel(text, maxTokens)
+	totalInputTokens, maxOutputTokens := calculateBudgets(text, model)
+	fmt.Printf("Summarize: Original text length: %d chars, estimated tokens: %d\n", len(text), len(text)/4)
+	fmt.Printf("Summarize: Token budget: input=%d, output=%d\n", totalInputTokens, maxOutputTokens)
+	truncatedText := truncateTextForModel(text, totalInputTokens)
+	fmt.Printf("Summarize: Truncated text length: %d chars\n", len(truncatedText))
 
 	resp, err := o.c.CreateChatCompletion(ctx, openai.ChatCompletionRequest{
 		Model: model,
 		Messages: []openai.ChatCompletionMessage{{
 			Role:    "user",
 			Content: "Summarize this text concisely while preserving key information:\n" + truncatedText,
+		}},
+		MaxTokens:   maxOutputTokens,
+		Temperature: 0,
+	})
+	if err != nil {
+		return "", err
+	}
+
+	return resp.Choices[0].Message.Content, nil
+}
+
+func (o *OpenAIClient) Compare(ctx context.Context, summaries []string) (string, error) {
+	joined := strings.Join(summaries, "\n---\n")
+	model := openai.GPT3Dot5Turbo
+	_, maxOutputTokens := calculateBudgets(joined, model) // Comparison needs detailed output
+
+	resp, err := o.c.CreateChatCompletion(ctx, openai.ChatCompletionRequest{
+		Model: model,
+		Messages: []openai.ChatCompletionMessage{{
+			Role:    "user",
+			Content: "Compare these summaries and highlight key differences:\n" + joined,
+		}},
+		MaxTokens:   maxOutputTokens,
+		Temperature: 0, // Consistent comparisons
+	})
+	if err != nil {
+		return "", err
+	}
+
+	return resp.Choices[0].Message.Content, nil
+}
+
+func (o *OpenAIClient) GenerateText(ctx context.Context, prompt string) (string, error) {
+	model := openai.GPT3Dot5Turbo
+	_, maxTokens := calculateBudgets(prompt, model)
+
+	resp, err := o.c.CreateChatCompletion(ctx, openai.ChatCompletionRequest{
+		Model: model,
+		Messages: []openai.ChatCompletionMessage{{
+			Role:    "user",
+			Content: prompt,
 		}},
 		MaxTokens:   maxTokens,
 		Temperature: 0,
@@ -86,6 +131,34 @@ func (o *OpenAIClient) Summarize(ctx context.Context, text string) (string, erro
 	}
 
 	return resp.Choices[0].Message.Content, nil
+}
+
+func (o *OpenAIClient) SentimentScore(ctx context.Context, text string) (float64, error) {
+	model := openai.GPT3Dot5Turbo
+
+	_, maxOutputTokens := calculateBudgets(text, model)
+
+	resp, err := o.c.CreateChatCompletion(ctx, openai.ChatCompletionRequest{
+		Model: model,
+		Messages: []openai.ChatCompletionMessage{{
+			Role:    "user",
+			Content: fmt.Sprintf("Analyze the sentiment of this text and return only a number between -1 (very negative) and 1 (very positive):\n%s", text),
+		}},
+		MaxTokens:   maxOutputTokens,
+		Temperature: 0,
+	})
+	if err != nil {
+		return 0, err
+	}
+
+	// Parse the response as a float64
+	scoreStr := strings.TrimSpace(resp.Choices[0].Message.Content)
+	score, err := strconv.ParseFloat(scoreStr, 64)
+	if err != nil {
+		return 0, fmt.Errorf("failed to parse sentiment score: %w", err)
+	}
+
+	return score, nil
 }
 
 func (o *OpenAIClient) Embed(ctx context.Context, text string) ([]float32, error) {
@@ -103,7 +176,7 @@ func (o *OpenAIClient) Embed(ctx context.Context, text string) ([]float32, error
 func (o *OpenAIClient) ToneCompare(ctx context.Context, text1, text2 string) (string, error) {
 	joined := fmt.Sprintf("%s\n---\n%s", text1, text2)
 	model := openai.GPT3Dot5Turbo
-	maxTokens := calculateMaxTokens(joined, model) // Tone analysis is more concise
+	_, maxOutputTokens := calculateBudgets(joined, model) // Tone analysis is more concise
 
 	resp, err := o.c.CreateChatCompletion(ctx, openai.ChatCompletionRequest{
 		Model: model,
@@ -111,29 +184,8 @@ func (o *OpenAIClient) ToneCompare(ctx context.Context, text1, text2 string) (st
 			Role:    "user",
 			Content: "Compare tone across these summaries:\n" + joined,
 		}},
-		MaxTokens:   maxTokens,
+		MaxTokens:   maxOutputTokens,
 		Temperature: 0, // Consistent tone analysis
-	})
-	if err != nil {
-		return "", err
-	}
-
-	return resp.Choices[0].Message.Content, nil
-}
-
-func (o *OpenAIClient) Compare(ctx context.Context, summaries []string) (string, error) {
-	joined := strings.Join(summaries, "\n---\n")
-	model := openai.GPT3Dot5Turbo
-	maxTokens := calculateMaxTokens(joined, model) // Comparison needs detailed output
-
-	resp, err := o.c.CreateChatCompletion(ctx, openai.ChatCompletionRequest{
-		Model: model,
-		Messages: []openai.ChatCompletionMessage{{
-			Role:    "user",
-			Content: "Compare these summaries and highlight key differences:\n" + joined,
-		}},
-		MaxTokens:   maxTokens,
-		Temperature: 0, // Consistent comparisons
 	})
 	if err != nil {
 		return "", err
@@ -144,9 +196,8 @@ func (o *OpenAIClient) Compare(ctx context.Context, summaries []string) (string,
 
 func (o *OpenAIClient) ExtractAllSemantics(ctx context.Context, text string) (*domain.SemanticAnalysis, error) {
 	model := openai.GPT3Dot5Turbo
-	maxTokens := calculateMaxTokens(text, model) // Conservative ratio for semantic extraction to prevent response overflow
-
-	truncatedText := truncateTextForModel(text, maxTokens) // Truncate for semantic extraction
+	_, maxOutputTokens := calculateBudgets(text, model) // Conservative ratio for semantic extraction to prevent response overflow
+	// Truncate for semantic extraction
 
 	prompt := fmt.Sprintf(`Extract entities, keywords, topics, sentiment, and tone from this text. Return JSON in this exact format:
 {
@@ -163,8 +214,9 @@ Rules:
 - sentiment_score must be a number between 0.0 and 1.0
 - Only include items with confidence/relevance/score >= 0.6
 - Sort by score/confidence/relevance (highest first)
-- Return valid JSON only`, truncatedText)
+- Return valid JSON only
 
+Text: %s`, text)
 
 	resp, err := o.c.CreateChatCompletion(ctx, openai.ChatCompletionRequest{
 		Model: model,
@@ -172,7 +224,7 @@ Rules:
 			Role:    "user",
 			Content: prompt,
 		}},
-		MaxTokens:   maxTokens,
+		MaxTokens:   maxOutputTokens,
 		Temperature: 0, // Deterministic results for structured data extraction
 	})
 	if err != nil {
@@ -195,59 +247,6 @@ Rules:
 	}
 
 	return &analysis, nil
-}
-
-func (o *OpenAIClient) SentimentScore(ctx context.Context, text string) (float64, error) {
-	model := openai.GPT3Dot5Turbo
-	maxTokens := calculateMaxTokens(text, model) // Short response for sentiment score
-
-	resp, err := o.c.CreateChatCompletion(ctx, openai.ChatCompletionRequest{
-		Model: model,
-		Messages: []openai.ChatCompletionMessage{{
-			Role:    "user",
-			Content: "Rate the sentiment of this text on a scale from 0.0 (very negative) to 1.0 (very positive). Return only the number:\n" + text,
-		}},
-		MaxTokens:   maxTokens,
-		Temperature: 0,
-	})
-	if err != nil {
-		return 0.5, err
-	}
-
-	scoreStr := strings.TrimSpace(resp.Choices[0].Message.Content)
-	score, err := strconv.ParseFloat(scoreStr, 64)
-	if err != nil {
-		return 0.5, err
-	}
-
-	// Clamp to valid range
-	if score < 0.0 {
-		score = 0.0
-	} else if score > 1.0 {
-		score = 1.0
-	}
-
-	return score, nil
-}
-
-func (o *OpenAIClient) GenerateText(ctx context.Context, prompt string) (string, error) {
-	model := openai.GPT3Dot5Turbo
-	maxTokens := calculateMaxTokens(prompt, model)
-
-	resp, err := o.c.CreateChatCompletion(ctx, openai.ChatCompletionRequest{
-		Model: model,
-		Messages: []openai.ChatCompletionMessage{{
-			Role:    "user",
-			Content: prompt,
-		}},
-		MaxTokens:   maxTokens,
-		Temperature: 0.7,
-	})
-	if err != nil {
-		return "", err
-	}
-
-	return resp.Choices[0].Message.Content, nil
 }
 
 func (o *OpenAIClient) PlanQuery(ctx context.Context, query string) (*domain.Plan, error) {
@@ -285,7 +284,7 @@ Query: %s`, query)
 			Role:    "user",
 			Content: prompt,
 		}},
-		MaxTokens:   400,
+		MaxTokens:   500,
 		Temperature: 0, // Deterministic planning
 	})
 	if err != nil {
@@ -315,15 +314,15 @@ func truncateTextForModel(text string, maxInputTokens int) string {
 		return text
 	}
 
-	// Calculate how many characters we can keep
-	maxChars := maxInputTokens * 4
+	// Calculate how many characters we can keep (be very conservative)
+	maxChars := (maxInputTokens - 500) * 2 // Very conservative: 2 chars per token
 	if len(text) <= maxChars {
 		return text
 	}
 
 	// Truncate and add ellipsis
 	truncated := text[:maxChars-3] + "..."
-	fmt.Printf("Truncation: Truncated to %d chars\n", len(truncated))
+	fmt.Printf("Truncation: Truncated to %d chars (estimated %d tokens)\n", len(truncated), len(truncated)/4)
 	return truncated
 }
 

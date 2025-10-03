@@ -46,6 +46,50 @@ func parseJSONFields(a *domain.Article, entitiesJSON, keywordsJSON, topicsJSON [
 	}
 }
 
+// GetArticleByURL retrieves an article by URL, including URL hash
+func (r *Repo) GetArticleByURL(ctx context.Context, url string) (*domain.Article, error) {
+	query := `SELECT id, url, title, summary, embedding, sentiment, sentiment_score, tone, 
+	          entities, keywords, topics, url_hash, created_at, updated_at
+	          FROM articles WHERE url = $1`
+
+	row := r.DB.QueryRowContext(ctx, query, url)
+
+	var a domain.Article
+	var entitiesJSON, keywordsJSON, topicsJSON []byte
+	var embeddingStr string
+
+	err := row.Scan(&a.ID, &a.URL, &a.Title, &a.Summary, &embeddingStr,
+		&a.Sentiment, &a.SentimentScore, &a.Tone,
+		&entitiesJSON, &keywordsJSON, &topicsJSON,
+		&a.URLHash, &a.CreatedAt, &a.UpdatedAt)
+
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil // Article not found
+		}
+		return nil, err
+	}
+
+	// Parse embedding
+	if embeddingStr != "[]" && embeddingStr != "" {
+		// Parse vector string like "[0.1,0.2,0.3]"
+		embeddingStr = strings.Trim(embeddingStr, "[]")
+		if embeddingStr != "" {
+			parts := strings.Split(embeddingStr, ",")
+			a.Embedding = make([]float32, len(parts))
+			for i, part := range parts {
+				var val float64
+				if _, err := fmt.Sscanf(strings.TrimSpace(part), "%f", &val); err == nil {
+					a.Embedding[i] = float32(val)
+				}
+			}
+		}
+	}
+
+	parseJSONFields(&a, entitiesJSON, keywordsJSON, topicsJSON)
+	return &a, nil
+}
+
 // ---------- Core Queries ----------
 
 func (r *Repo) GetSummaryByID(ctx context.Context, id int, urls []string) (string, error) {
@@ -308,13 +352,14 @@ func (r *Repo) GetArticlesByURLs(ctx context.Context, urls []string) ([]domain.A
 
 // ---------- Upsert ----------
 func (r *Repo) UpsertArticle(ctx context.Context, article *domain.Article) error {
-	query := `INSERT INTO articles (id, url, title, summary, embedding, sentiment, sentiment_score, tone, entities, keywords, topics, created_at, updated_at)
-		  VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+	query := `INSERT INTO articles (id, url, title, summary, embedding, sentiment, sentiment_score, tone, entities, keywords, topics, url_hash, created_at, updated_at)
+		  VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
 		  ON CONFLICT (url) DO UPDATE SET 
 		    title=EXCLUDED.title, summary=EXCLUDED.summary, embedding=EXCLUDED.embedding,
 		    sentiment=EXCLUDED.sentiment, sentiment_score=EXCLUDED.sentiment_score,
 		    tone=EXCLUDED.tone, entities=EXCLUDED.entities, keywords=EXCLUDED.keywords,
-		    topics=EXCLUDED.topics, updated_at=EXCLUDED.updated_at`
+		    topics=EXCLUDED.topics, url_hash=EXCLUDED.url_hash,
+		    updated_at=EXCLUDED.updated_at`
 
 	now := time.Now()
 	article.CreatedAt, article.UpdatedAt = now, now
@@ -347,7 +392,70 @@ func (r *Repo) UpsertArticle(ctx context.Context, article *domain.Article) error
 		article.ID, article.URL, article.Title, article.Summary,
 		embeddingStr, article.Sentiment, article.SentimentScore, article.Tone,
 		entitiesJSON, keywordsJSON, topicsJSON,
-		article.CreatedAt, article.UpdatedAt,
+		article.URLHash, article.CreatedAt, article.UpdatedAt,
 	)
+	return err
+}
+
+// ---------- Chat Cache ----------
+
+// GetChatCache retrieves a cached chat response by request hash
+func (r *Repo) GetChatCache(ctx context.Context, requestHash string) (*domain.ChatCache, error) {
+	query := `SELECT id, request_hash, request_json, response_json, created_at, expires_at
+	          FROM chat_cache WHERE request_hash = $1 AND expires_at > NOW()`
+
+	row := r.DB.QueryRowContext(ctx, query, requestHash)
+
+	var cache domain.ChatCache
+	var requestJSON, responseJSON []byte
+
+	err := row.Scan(&cache.ID, &cache.RequestHash, &requestJSON, &responseJSON,
+		&cache.CreatedAt, &cache.ExpiresAt)
+
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil // Cache not found or expired
+		}
+		return nil, err
+	}
+
+	// Parse JSON fields
+	if len(requestJSON) > 0 {
+		_ = json.Unmarshal(requestJSON, &cache.RequestJSON)
+	}
+	if len(responseJSON) > 0 {
+		_ = json.Unmarshal(responseJSON, &cache.ResponseJSON)
+	}
+
+	return &cache, nil
+}
+
+// SetChatCache stores a chat request/response in cache
+func (r *Repo) SetChatCache(ctx context.Context, requestHash string, request, response interface{}) error {
+	requestJSON, err := json.Marshal(request)
+	if err != nil {
+		return fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	responseJSON, err := json.Marshal(response)
+	if err != nil {
+		return fmt.Errorf("failed to marshal response: %w", err)
+	}
+
+	query := `INSERT INTO chat_cache (request_hash, request_json, response_json, expires_at)
+	          VALUES ($1, $2, $3, NOW() + INTERVAL '24 hours')
+	          ON CONFLICT (request_hash) DO UPDATE SET
+	            request_json = EXCLUDED.request_json,
+	            response_json = EXCLUDED.response_json,
+	            expires_at = EXCLUDED.expires_at`
+
+	_, err = r.DB.ExecContext(ctx, query, requestHash, requestJSON, responseJSON)
+	return err
+}
+
+// CleanExpiredChatCache removes expired cache entries
+func (r *Repo) CleanExpiredChatCache(ctx context.Context) error {
+	query := `DELETE FROM chat_cache WHERE expires_at < NOW()`
+	_, err := r.DB.ExecContext(ctx, query)
 	return err
 }

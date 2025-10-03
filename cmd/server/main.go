@@ -8,7 +8,9 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"time"
 
+	"article-assistant/internal/cache"
 	"article-assistant/internal/domain"
 	"article-assistant/internal/executor"
 	"article-assistant/internal/ingest"
@@ -34,6 +36,7 @@ func main() {
 
 	// Initialize components
 	repo := repository.NewRepo(db)
+	cacheService := cache.NewService(repo)
 
 	apiKey := os.Getenv("OPENAI_API_KEY")
 	if apiKey == "" {
@@ -45,6 +48,10 @@ func main() {
 		Repo: repo,
 		LLM:  llmClient,
 	}
+
+	// Start cache cleanup background task
+	ctx := context.Background()
+	cacheService.StartCacheCleanup(ctx, 1*time.Hour) // Clean every hour
 
 	// Ingest articles on startup
 	articlesFile := "resources/data/startup_articles.txt"
@@ -81,7 +88,7 @@ func main() {
 		json.NewEncoder(w).Encode(map[string]string{"status": "success", "message": "URL ingested successfully"})
 	})
 
-	// Chat endpoint - uses simple LLM planner + executor
+	// Chat endpoint - uses simple LLM planner + executor with caching
 	http.HandleFunc("/chat", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("Access-Control-Allow-Origin", "*")
@@ -98,6 +105,20 @@ func main() {
 		}
 
 		ctx := context.Background()
+
+		// Check cache first
+		cachedResponse, err := cacheService.GetCachedResponse(ctx, req)
+		if err != nil {
+			log.Printf("⚠️  Cache lookup failed: %v", err)
+		} else if cachedResponse != nil {
+			// Return cached response
+			log.Printf("💾 Returning cached response for query: %s", req.Query)
+			json.NewEncoder(w).Encode(cachedResponse)
+			return
+		}
+
+		// Cache miss - process request
+		log.Printf("🔄 Processing new request: %s", req.Query)
 
 		// Step 1: Create execution plan using LLM
 		plan, err := llmClient.PlanQuery(ctx, req.Query)
@@ -120,6 +141,11 @@ func main() {
 		// Add plan to response for debugging
 		response.Plan = plan
 		log.Printf("Response with plan: %+v", response)
+
+		// Cache the response
+		if err := cacheService.SetCachedResponse(ctx, req, response); err != nil {
+			log.Printf("⚠️  Failed to cache response: %v", err)
+		}
 
 		json.NewEncoder(w).Encode(response)
 	})
