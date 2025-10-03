@@ -58,7 +58,7 @@ func calculateMaxTokens(inputText string, model string) int {
 		maxTokens = availableForOutput
 	}
 	if outputLimit < maxTokens {
-		maxTokens = outputLimit
+		maxTokens = availableForOutput
 	}
 
 	fmt.Printf("Token calc: input=%d, available=%d, desired=%d, final=%d\n",
@@ -144,7 +144,9 @@ func (o *OpenAIClient) Compare(ctx context.Context, summaries []string) (string,
 
 func (o *OpenAIClient) ExtractAllSemantics(ctx context.Context, text string) (*domain.SemanticAnalysis, error) {
 	model := openai.GPT3Dot5Turbo
-	truncatedText := truncateTextForModel(text, 800) // Truncate for semantic extraction
+	maxTokens := calculateMaxTokens(text, model) // Conservative ratio for semantic extraction to prevent response overflow
+
+	truncatedText := truncateTextForModel(text, maxTokens) // Truncate for semantic extraction
 
 	prompt := fmt.Sprintf(`Extract entities, keywords, topics, sentiment, and tone from this text. Return JSON in this exact format:
 {
@@ -163,7 +165,6 @@ Rules:
 - Sort by score/confidence/relevance (highest first)
 - Return valid JSON only`, truncatedText)
 
-	maxTokens := calculateMaxTokens(truncatedText, model) // Conservative ratio for semantic extraction to prevent response overflow
 
 	resp, err := o.c.CreateChatCompletion(ctx, openai.ChatCompletionRequest{
 		Model: model,
