@@ -9,6 +9,7 @@ import (
 	"syscall"
 	"time"
 
+	"article-chat-system/internal/analysis"
 	"article-chat-system/internal/article"
 	"article-chat-system/internal/config"
 	"article-chat-system/internal/llm"
@@ -23,12 +24,10 @@ func main() {
 	ctx := context.Background()
 
 	// --- 1. Load Configuration First ---
-	// This is the foundation and has no dependencies.
 	cfg := config.New()
 	log.Printf("Configuration loaded. LLM Provider: %s, Prompt Version: %s", cfg.LLMProvider, cfg.PromptVersion)
 
 	// --- 2. Initialize Core, Independent Components ---
-	// These components have few or no dependencies on other parts of our application.
 	llmClient, err := llm.NewClientFactory(ctx, cfg)
 	if err != nil {
 		log.Fatalf("Failed to create LLM client: %v", err)
@@ -41,15 +40,18 @@ func main() {
 
 	promptFactory := prompts.NewFactory(prompts.ModelGemini15Flash, promptLoader)
 	strategyExecutor := strategies.NewExecutor()
+	analysisSvc := analysis.NewService() // analysisSvc is a core independent component
 
 	// --- 3. Initialize Services that Depend on Core Components ---
-	// These services depend on the components created in step 2.
-	articleSvc := article.NewService(llmClient)
+	articleSvc := article.NewService(analysisSvc, llmClient) // articleSvc now depends on analysisSvc
 	plannerSvc := planner.NewService(llmClient, promptFactory)
 	processingFacade := processing.NewFacade(llmClient, articleSvc)
 
+	// Set the strategy executor on the article service to resolve import cycle
+	articleSvc.SetStrategyExecutor(strategyExecutor)
+
 	// --- 4. Initialize the Transport Layer Last ---
-	// The handler is the top layer; it depends on all the services, so it must be created last.
+	// The handler depends on all services, so it must be created last.
 	apiHandler := handler.NewHandler(
 		articleSvc,
 		plannerSvc,
@@ -59,7 +61,6 @@ func main() {
 	)
 
 	// --- 5. Start Background Processes and the Server ---
-	// Now that all components are correctly initialized, we can start the application.
 	go func() {
 		log.Println("Processing initial articles in the background...")
 		for _, url := range cfg.InitialArticleURLs {
@@ -83,7 +84,7 @@ func main() {
 		}
 	}()
 
-	// --- 6. Handle Graceful Shutdown ---
+	// Handle graceful shutdown.
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
 	<-stop

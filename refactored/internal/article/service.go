@@ -10,6 +10,7 @@ import (
 	"article-chat-system/internal/analysis"
 	"article-chat-system/internal/llm"
 	"article-chat-system/internal/planner"
+	"article-chat-system/internal/prompts"
 )
 
 // ArticleManagement defines the methods that strategies need from the article service.
@@ -49,6 +50,21 @@ func (s *Service) GetAllArticles() []*Article {
 		return true // continue iteration
 	})
 	return articles
+}
+
+// GetAllArticlesAsPrompts retrieves all processed articles from the store and converts them to prompts.Article.
+func (s *Service) GetAllArticlesAsPrompts() []*prompts.Article {
+	var promptArticles []*prompts.Article
+	s.store.Range(func(key, value interface{}) bool {
+		if art, ok := value.(*Article); ok {
+			promptArticles = append(promptArticles, &prompts.Article{
+				URL:   art.URL,
+				Title: art.Title,
+			})
+		}
+		return true
+	})
+	return promptArticles
 }
 
 // GetArticle retrieves a single article by its URL.
