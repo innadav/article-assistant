@@ -251,31 +251,31 @@ run_single_query_tests() {
     echo
     
     # Test 1: Summary of specific article
-    test_api_query_with_url \
+    test_api_query \
         "Summary Test" \
-        "Summarize the article" \
-        "https://techcrunch.com/2025/07/25/sam-altman-warns-theres-no-legal-confidentiality-when-using-chatgpt-as-a-therapist/" \
+        "Summarize the article https://techcrunch.com/2025/07/25/sam-altman-warns-theres-no-legal-confidentiality-when-using-chatgpt-as-a-therapist/" \
+        "summary" \
         "summary"
     
     # Test 2: Keywords extraction
-    test_api_query_with_url \
+    test_api_query \
         "Keywords Test" \
-        "Extract keywords from the article" \
-        "https://techcrunch.com/2025/07/25/sam-altman-warns-theres-no-legal-confidentiality-when-using-chatgpt-as-a-therapist/" \
-        "keywords_or_topics"
+        "Extract keywords from the article https://techcrunch.com/2025/07/25/sam-altman-warns-theres-no-legal-confidentiality-when-using-chatgpt-as-a-therapist/" \
+        "keywords_or_topics" \
+        "keywords"
     
     # Test 3: Sentiment analysis
-    test_api_query_with_url \
+    test_api_query \
         "Sentiment Test" \
-        "What is the sentiment of the article?" \
-        "https://techcrunch.com/2025/07/27/wizard-of-oz-blown-up-by-ai-for-giant-sphere-screen/" \
-        "get_sentiment"
+        "What is the sentiment of the article https://techcrunch.com/2025/07/27/wizard-of-oz-blown-up-by-ai-for-giant-sphere-screen/?" \
+        "get_sentiment" \
+        "sentiment"
     
     # Test 4: General article search
     test_api_query \
-        "Article Search Test" \
-        "What articles discuss AI technology?" \
-        "get_list_articles" \
+        "Article positive about Search Test" \
+        "Which article is more positive about the topic of AI regulation?" \
+        "most_positive_article_for_filter" \
         "articles"
     
     # Test 5: Top entities
@@ -309,7 +309,7 @@ run_multi_query_tests() {
     
     response=$(curl -s -X POST "$API_BASE/chat" \
         -H "Content-Type: application/json" \
-        -d "{\"query\": \"Compare these two articles\", \"urls\": [\"$url1\", \"$url2\"]}")
+        -d "{\"query\": \"Compare these two articles: $url1 and $url2\"}")
     
     end_time=$(date +%s.%N)
     local duration=$(echo "$end_time - $start_time" | bc)
@@ -328,7 +328,7 @@ run_multi_query_tests() {
     log_info "⏱️  Response time: ${duration}s"
     
     # Store test result
-    local test_result=$(jq -n --arg name "Article Comparison Test" --arg query "Compare these two articles" --arg expected_task "compare_articles" --arg actual_task "$actual_task" --arg status "$status" --arg duration "$duration" --argjson response "$response" '
+    local test_result=$(jq -n --arg name "Article Comparison Test" --arg query "Compare these two articles: $url1 and $url2" --arg expected_task "compare_articles" --arg actual_task "$actual_task" --arg status "$status" --arg duration "$duration" --argjson response "$response" '
         {
             name: $name,
             query: $query,

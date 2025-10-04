@@ -130,7 +130,16 @@ CREATE INDEX chat_cache_expires_at_idx ON chat_cache(expires_at);
 ```bash
 # Create .env file
 echo "OPENAI_API_KEY=your_openai_api_key_here" > .env
+
+# Optional: Configure OpenAI model (default: gpt-4-turbo)
+echo "OPENAI_MODEL=gpt-4" >> .env
 ```
+
+**Supported Models:**
+- `gpt-4-turbo` (default) - Latest GPT-4 with higher context limit
+- `gpt-3.5-turbo` - Fast and cost-effective
+- `gpt-3.5-turbo-16k` - Higher context limit
+- `gpt-4` - Most capable, higher cost
 
 ### 2. Start Services
 
@@ -158,6 +167,52 @@ curl -X POST http://localhost:8080/ingest \
 curl -X POST http://localhost:8080/chat \
   -H "Content-Type: application/json" \
   -d '{"query": "What are the top entities?"}'
+```
+
+## ⚙️ Configuration
+
+### Model Configuration
+
+The Article Assistant supports configurable OpenAI models through environment variables:
+
+```bash
+# Set model in .env file
+OPENAI_MODEL=gpt-4
+
+# Or export in shell
+export OPENAI_MODEL=gpt-3.5-turbo-16k
+```
+
+**Model Comparison:**
+
+| Model | Context Limit | Speed | Cost | Best For |
+|-------|---------------|-------|------|----------|
+| `gpt-3.5-turbo` | 4K tokens | Fast | Low | General use, summaries |
+| `gpt-3.5-turbo-16k` | 16K tokens | Fast | Low-Medium | Longer articles |
+| `gpt-4` | 8K tokens | Medium | High | Complex analysis |
+| `gpt-4-turbo` | 128K tokens | Medium | High | Very long content |
+
+**Configuration Examples:**
+
+```bash
+# For development/testing (fast, cheap)
+OPENAI_MODEL=gpt-3.5-turbo
+
+# For production with longer articles
+OPENAI_MODEL=gpt-3.5-turbo-16k
+
+# For maximum quality analysis
+OPENAI_MODEL=gpt-4
+
+# For very long content analysis
+OPENAI_MODEL=gpt-4-turbo
+```
+
+### Database Configuration
+
+```bash
+# Custom database URL
+DATABASE_URL=postgres://user:pass@localhost:5432/article_assistant
 ```
 
 ## 🧪 Testing

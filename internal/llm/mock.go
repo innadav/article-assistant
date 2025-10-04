@@ -114,7 +114,7 @@ func (m *MockClient) PlanQuery(ctx context.Context, query string) (*domain.Plan,
 
 	case strings.Contains(query, "economic trends"):
 		return &domain.Plan{
-			Command: "get_list_articles",
+			Command: "filter_by_specific_topic",
 			Args:    map[string]interface{}{"topic": "economic trends"},
 		}, nil
 
@@ -132,7 +132,7 @@ func (m *MockClient) PlanQuery(ctx context.Context, query string) (*domain.Plan,
 
 	case strings.Contains(query, "positive about") || strings.Contains(query, "more positive"):
 		return &domain.Plan{
-			Command: "get_article",
+			Command: "most_positive_article_for_filter",
 			Args:    map[string]interface{}{"filter": "positive about the topic of AI regulation"},
 		}, nil
 
@@ -150,7 +150,7 @@ func (m *MockClient) PlanQuery(ctx context.Context, query string) (*domain.Plan,
 
 	case strings.Contains(query, "semantic search") || strings.Contains(query, "vector search"):
 		return &domain.Plan{
-			Command: "get_list_articles",
+			Command: "filter_by_specific_topic",
 			Args:    map[string]interface{}{"topic": "technology"},
 		}, nil
 

@@ -101,11 +101,11 @@ func TestPlanQuery_CanonicalCases(t *testing.T) {
 			name:  "Articles on economic trends",
 			query: "What articles discuss economic trends?",
 			response: `{
-				"command": "get_list_articles",
+				"command": "filter_by_specific_topic",
 				"args": { "topic": "economic_trends" }
 			}`,
 			expected: domain.Plan{
-				Command: "get_list_articles",
+				Command: "filter_by_specific_topic",
 				Args: map[string]interface{}{
 					"topic": "economic_trends",
 				},
@@ -115,11 +115,11 @@ func TestPlanQuery_CanonicalCases(t *testing.T) {
 			name:  "Most positive article",
 			query: "Which article is more positive about the topic of AI regulation?",
 			response: `{
-				"command": "get_article",
+				"command": "most_positive_article_for_filter",
 				"args": { "filter": "positive about the topic of AI regulation" }
 			}`,
 			expected: domain.Plan{
-				Command: "get_article",
+				Command: "most_positive_article_for_filter",
 				Args: map[string]interface{}{
 					"filter": "positive about the topic of AI regulation",
 				},

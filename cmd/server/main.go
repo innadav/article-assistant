@@ -42,7 +42,17 @@ func main() {
 	if apiKey == "" {
 		log.Fatal("OPENAI_API_KEY environment variable is required")
 	}
-	llmClient := llm.New(apiKey)
+
+	// Get model configuration from environment variable
+	model := os.Getenv("OPENAI_MODEL")
+	if model == "" {
+		model = "gpt-4-turbo" // Default model
+		log.Printf("🔧 Using default model: %s (set OPENAI_MODEL to override)", model)
+	} else {
+		log.Printf("🔧 Using configured model: %s", model)
+	}
+
+	llmClient := llm.New(apiKey, model)
 
 	ingestService := &ingest.Service{
 		Repo: repo,

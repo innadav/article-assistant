@@ -95,9 +95,9 @@ run_multi_tests() {
     # Test 4: Sentiment comparison
     test_multi_query \
         "Sentiment Comparison Test" \
-        "Which of these articles has the most positive sentiment about AI?" \
+        "Which of these articles has the most positive sentiment about AI technology?" \
         "[\"$url1\", \"$url2\", \"$url3\"]" \
-        "get_article" \
+        "most_positive_article_for_filter" \
         "positive"
     
     # Test 5: Technology focus comparison
@@ -137,7 +137,7 @@ run_multi_tests() {
         "Multi-Article Sentiment Test" \
         "Which article has the most negative sentiment?" \
         "[\"$url1\", \"$url2\", \"$url3\", \"$url4\"]" \
-        "get_article" \
+        "most_positive_article_for_filter" \
         "sentiment"
     
     # Test 10: Comprehensive comparison

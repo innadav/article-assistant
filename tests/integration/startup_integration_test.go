@@ -40,7 +40,7 @@ func TestArticleLoader_Integration(t *testing.T) {
 
 	// Create repository and LLM client
 	repo := repository.NewRepo(db)
-	llmClient := llm.New(apiKey)
+	llmClient := llm.New(apiKey, "gpt-3.5-turbo")
 
 	// Create ingest service
 	ingestService := &ingest.Service{
@@ -112,7 +112,7 @@ func TestArticleLoader_RealStartupFile(t *testing.T) {
 
 	// Create repository and LLM client
 	repo := repository.NewRepo(db)
-	llmClient := llm.New(apiKey)
+	llmClient := llm.New(apiKey, "gpt-3.5-turbo")
 
 	// Create ingest service
 	ingestService := &ingest.Service{

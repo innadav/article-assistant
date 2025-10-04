@@ -33,7 +33,7 @@ func TestCommandIntegration(t *testing.T) {
 	defer db.Close()
 
 	repo := repository.NewRepo(db)
-	llmClient := llm.New(os.Getenv("OPENAI_API_KEY"))
+	llmClient := llm.New(os.Getenv("OPENAI_API_KEY"), "gpt-3.5-turbo")
 	commandExecutor := executor.NewExecutorWithCommands(repo, llmClient)
 
 	// Test URLs for ingestion
@@ -175,7 +175,7 @@ func TestCommandRegistry(t *testing.T) {
 	defer db.Close()
 
 	repo := repository.NewRepo(db)
-	llmClient := llm.New(os.Getenv("OPENAI_API_KEY"))
+	llmClient := llm.New(os.Getenv("OPENAI_API_KEY"), "gpt-3.5-turbo")
 	commandExecutor := executor.NewExecutorWithCommands(repo, llmClient)
 
 	expectedCommands := []string{
@@ -184,8 +184,8 @@ func TestCommandRegistry(t *testing.T) {
 		"get_sentiment",
 		"compare_articles",
 		"ton_key_differences",
-		"get_list_articles",
-		"get_article",
+		"filter_by_specific_topic",
+		"most_positive_article_for_filter",
 		"get_top_entities",
 	}
 
@@ -201,9 +201,9 @@ func TestCommandRegistry(t *testing.T) {
 			switch cmd {
 			case "summary", "keywords_or_topics", "get_sentiment", "compare_articles", "ton_key_differences":
 				plan.Args["urls"] = []string{"https://example.com/test"}
-			case "get_list_articles":
+			case "filter_by_specific_topic":
 				plan.Args["topic"] = "test topic"
-			case "get_article":
+			case "most_positive_article_for_filter":
 				plan.Args["filter"] = "test filter"
 			}
 

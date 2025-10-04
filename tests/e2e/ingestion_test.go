@@ -40,7 +40,7 @@ func TestE2EIngestion(t *testing.T) {
 	// Initialize components
 	repo := repository.NewRepo(db)
 	apiKey := os.Getenv("OPENAI_API_KEY")
-	llmClient := llm.New(apiKey)
+	llmClient := llm.New(apiKey, "gpt-3.5-turbo")
 
 	ingestService := &ingest.Service{
 		Repo: repo,

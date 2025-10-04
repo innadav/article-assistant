@@ -28,7 +28,7 @@ func TestSimplePlannerWithMock(t *testing.T) {
 		{
 			name:              "Positive About AI Query",
 			query:             "Which article is more positive about AI regulation?",
-			expectedTask:      "get_article",
+			expectedTask:      "most_positive_article_for_filter",
 			shouldHaveFilters: true,
 			expectedTopic:     "positive about the topic of AI regulation",
 		},
@@ -63,7 +63,7 @@ func TestSimplePlannerWithMock(t *testing.T) {
 		{
 			name:              "Search Query",
 			query:             "What articles discuss economic trends?",
-			expectedTask:      "get_list_articles",
+			expectedTask:      "filter_by_specific_topic",
 			shouldHaveFilters: true,
 			expectedTopic:     "economic trends",
 		},

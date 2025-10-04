@@ -76,7 +76,7 @@ func TestCommandCreation(t *testing.T) {
 	}
 
 	// Search command
-	searchCmd := &executor.FilterFromVectorDBByFilter{}
+	searchCmd := &executor.FetchArticlesDiscussingSpecificTopic{}
 	if searchCmd == nil {
 		t.Error("SearchCommand should be creatable")
 	}

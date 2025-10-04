@@ -123,8 +123,8 @@ run_single_tests() {
     # Test 4: General article search
     test_api_query \
         "Article Search Test" \
-        "What articles discuss AI technology?" \
-        "get_list_articles" \
+        "What articles discuss AI technology and innovation?" \
+        "filter_by_specific_topic" \
         "articles"
     
     # Test 5: Top entities
@@ -137,36 +137,36 @@ run_single_tests() {
     # Test 6: Topic-based search
     test_api_query \
         "Topic Search Test" \
-        "What articles discuss cybersecurity?" \
-        "get_list_articles" \
+        "What articles discuss cybersecurity and data protection?" \
+        "filter_by_specific_topic" \
         "cyber"
     
     # Test 7: Sentiment-based search
     test_api_query \
         "Sentiment Search Test" \
-        "Which article is most positive about technology?" \
-        "get_article" \
+        "Which article is most positive about technology innovation?" \
+        "most_positive_article_for_filter" \
         "positive"
     
     # Test 8: Business articles search
     test_api_query \
         "Business Articles Test" \
-        "What business articles are available?" \
-        "get_list_articles" \
+        "What business and finance articles are available?" \
+        "filter_by_specific_topic" \
         "business"
     
     # Test 9: Tech articles search
     test_api_query \
         "Tech Articles Test" \
-        "Show me technology-related articles" \
-        "get_list_articles" \
+        "Show me technology and innovation articles" \
+        "filter_by_specific_topic" \
         "tech"
     
     # Test 10: Recent articles
     test_api_query \
         "Recent Articles Test" \
-        "What are the most recent articles?" \
-        "get_list_articles" \
+        "What are the most recent tech articles?" \
+        "filter_by_specific_topic" \
         "articles"
     
     log_info "Single query tests completed: $PASSED_TESTS passed, $FAILED_TESTS failed"

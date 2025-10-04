@@ -46,13 +46,13 @@ func (m *mockLLM) PlanQuery(ctx context.Context, query string) (*domain.Plan, er
 
 	case query == "What articles discuss economic trends?":
 		return &domain.Plan{
-			Command: "get_list_articles",
+			Command: "filter_by_specific_topic",
 			Args:    map[string]interface{}{"topic": "economic trends"},
 		}, nil
 
 	case query == "Which article is more positive about the topic of AI regulation?":
 		return &domain.Plan{
-			Command: "get_article",
+			Command: "most_positive_article_for_filter",
 			Args:    map[string]interface{}{"filter": "positive about the topic of AI regulation"},
 		}, nil
 
@@ -101,12 +101,12 @@ func TestMockPlannerScenarios(t *testing.T) {
 		},
 		{
 			query:       "What articles discuss economic trends?",
-			wantTask:    "get_list_articles",
+			wantTask:    "filter_by_specific_topic",
 			wantFilters: map[string]interface{}{"topic": "economic trends"},
 		},
 		{
 			query:       "Which article is more positive about the topic of AI regulation?",
-			wantTask:    "get_article",
+			wantTask:    "most_positive_article_for_filter",
 			wantFilters: map[string]interface{}{"filter": "positive about the topic of AI regulation"},
 		},
 		{

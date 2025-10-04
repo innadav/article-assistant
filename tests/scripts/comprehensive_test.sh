@@ -246,7 +246,7 @@ result=$(test_api_query \
     "Topic Search - Economic Trends" \
     "What articles discuss economic trends?" \
     "" \
-    "get_list_articles")
+    "filter_by_specific_topic")
 test_results+=("Search: $result")
 
 # Test 7: Tone differences between two sources (duplicate test - removing)
@@ -267,7 +267,7 @@ if [ ${#urls_array[@]} -ge 2 ]; then
         "AI Regulation More Positive" \
         "Which article is more positive about the topic of AI regulation?" \
         "$random_urls" \
-        "get_article")
+        "most_positive_article_for_filter")
     test_results+=("AI Regulation More Positive: $result")
 fi
 

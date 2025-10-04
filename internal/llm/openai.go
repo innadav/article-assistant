@@ -12,12 +12,14 @@ import (
 )
 
 type OpenAIClient struct {
-	c *openai.Client
+	c     *openai.Client
+	model string
 }
 
-func New(apiKey string) *OpenAIClient {
+func New(apiKey string, model string) *OpenAIClient {
 	return &OpenAIClient{
-		c: openai.NewClient(apiKey),
+		c:     openai.NewClient(apiKey),
+		model: model,
 	}
 }
 
@@ -70,15 +72,14 @@ func calculateBudgets(inputText string, model string) (int, int) {
 }
 
 func (o *OpenAIClient) Summarize(ctx context.Context, text string) (string, error) {
-	model := openai.GPT3Dot5Turbo
-	totalInputTokens, maxOutputTokens := calculateBudgets(text, model)
+	totalInputTokens, maxOutputTokens := calculateBudgets(text, o.model)
 	fmt.Printf("Summarize: Original text length: %d chars, estimated tokens: %d\n", len(text), len(text)/4)
 	fmt.Printf("Summarize: Token budget: input=%d, output=%d\n", totalInputTokens, maxOutputTokens)
 	truncatedText := truncateTextForModel(text, totalInputTokens)
 	fmt.Printf("Summarize: Truncated text length: %d chars\n", len(truncatedText))
 
 	resp, err := o.c.CreateChatCompletion(ctx, openai.ChatCompletionRequest{
-		Model: model,
+		Model: o.model,
 		Messages: []openai.ChatCompletionMessage{{
 			Role:    "user",
 			Content: "Summarize this text concisely while preserving key information:\n" + truncatedText,
@@ -87,7 +88,7 @@ func (o *OpenAIClient) Summarize(ctx context.Context, text string) (string, erro
 		Temperature: 0,
 	})
 	if err != nil {
-		return "", fmt.Errorf("failed to create chat completion for summarization (model=%s, tokens=%d): %w", model, maxOutputTokens, err)
+		return "", fmt.Errorf("failed to create chat completion for summarization (model=%s, tokens=%d): %w", o.model, maxOutputTokens, err)
 	}
 
 	if len(resp.Choices) == 0 {
@@ -99,7 +100,7 @@ func (o *OpenAIClient) Summarize(ctx context.Context, text string) (string, erro
 
 func (o *OpenAIClient) Compare(ctx context.Context, summaries []string) (string, error) {
 	joined := strings.Join(summaries, "\n---\n")
-	model := openai.GPT3Dot5Turbo
+	model := o.model
 	_, maxOutputTokens := calculateBudgets(joined, model) // Comparison needs detailed output
 
 	resp, err := o.c.CreateChatCompletion(ctx, openai.ChatCompletionRequest{
@@ -123,7 +124,7 @@ func (o *OpenAIClient) Compare(ctx context.Context, summaries []string) (string,
 }
 
 func (o *OpenAIClient) GenerateText(ctx context.Context, prompt string) (string, error) {
-	model := openai.GPT3Dot5Turbo
+	model := o.model
 	_, maxTokens := calculateBudgets(prompt, model)
 
 	resp, err := o.c.CreateChatCompletion(ctx, openai.ChatCompletionRequest{
@@ -143,7 +144,7 @@ func (o *OpenAIClient) GenerateText(ctx context.Context, prompt string) (string,
 }
 
 func (o *OpenAIClient) SentimentScore(ctx context.Context, text string) (float64, error) {
-	model := openai.GPT3Dot5Turbo
+	model := o.model
 
 	_, maxOutputTokens := calculateBudgets(text, model)
 
@@ -184,7 +185,7 @@ func (o *OpenAIClient) Embed(ctx context.Context, text string) ([]float32, error
 
 func (o *OpenAIClient) ToneCompare(ctx context.Context, text1, text2 string) (string, error) {
 	joined := fmt.Sprintf("%s\n---\n%s", text1, text2)
-	model := openai.GPT3Dot5Turbo
+	model := o.model
 	_, maxOutputTokens := calculateBudgets(joined, model) // Tone analysis is more concise
 
 	resp, err := o.c.CreateChatCompletion(ctx, openai.ChatCompletionRequest{
@@ -204,7 +205,7 @@ func (o *OpenAIClient) ToneCompare(ctx context.Context, text1, text2 string) (st
 }
 
 func (o *OpenAIClient) ExtractAllSemantics(ctx context.Context, text string) (*domain.SemanticAnalysis, error) {
-	model := openai.GPT3Dot5Turbo
+	model := o.model
 	_, maxOutputTokens := calculateBudgets(text, model) // Conservative ratio for semantic extraction to prevent response overflow
 	// Truncate for semantic extraction
 
@@ -259,7 +260,7 @@ Text: %s`, text)
 }
 
 func (o *OpenAIClient) PlanQuery(ctx context.Context, query string) (*domain.Plan, error) {
-	model := openai.GPT3Dot5Turbo
+	model := o.model
 
 	prompt := fmt.Sprintf(`You are a query planner for an article assistant. Map user queries to commands with arguments.
 
@@ -269,21 +270,24 @@ Supported commands:
 - get_sentiment: Get sentiment of articles (requires URLs)
 - compare_articles: Compare multiple articles (requires URLs)
 - ton_key_differences: Analyze tone differences between articles (requires URLs)
-- get_list_articles: Find articles by topic/filter (uses filter argument)
-- get_article: Find most positive article about a topic (uses filter argument)
+- filter_by_specific_topic: Find articles by topic/filter (uses filter argument)
+- most_positive_article_for_filter: Find most positive article about a topic (uses filter argument)
 - get_top_entities: Get most common entities across all articles (no arguments)
 
 Rules:
-1. Extract URLs from query if provided
+1. Extract URLs from query if provided - PRESERVE EXACT URL FORMAT including trailing slashes
 2. Extract filter/topic from query for search commands
 3. Return JSON in this exact format:
 {"command": "command_name", "args": {"urls": ["url1"], "filter": "topic"}}
 
 Examples:
-- "Summary of https://example.com" → {"command": "summary", "args": {"urls": ["https://example.com"]}}
-- "What articles discuss AI?" → {"command": "get_list_articles", "args": {"filter": "AI"}}
-- "Most positive about AI regulation" → {"command": "get_article", "args": {"filter": "AI regulation"}}
+- "Summary of https://example.com/" → {"command": "summary", "args": {"urls": ["https://example.com/"]}}
+- "Compare https://site1.com/ and https://site2.com/" → {"command": "compare_articles", "args": {"urls": ["https://site1.com/", "https://site2.com/"]}}
+- "What articles discuss AI?" → {"command": "filter_by_specific_topic", "args": {"filter": "AI"}}
+- "Most positive about AI regulation" → {"command": "most_positive_article_for_filter", "args": {"filter": "AI regulation"}}
 - "Top entities" → {"command": "get_top_entities", "args": {}}
+
+IMPORTANT: Always preserve the exact URL format from the user query, including trailing slashes!
 
 Query: %s`, query)
 

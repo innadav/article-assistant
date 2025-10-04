@@ -15,9 +15,9 @@ func NewExecutorWithCommands(repo *repository.Repo, llmClient *llm.OpenAIClient)
 	executor.Register("get_sentiment", &FetchSentimentCommand{Repo: repo})
 	executor.Register("compare_articles", &CompareCommand{Repo: repo, LLM: llmClient})
 	executor.Register("ton_key_differences", &ToneKeyDfferencesCommand{Repo: repo, LLM: llmClient})
-	executor.Register("get_article", &FetchMostPositivesByFilter{Repo: repo, LLM: llmClient})
+	executor.Register("most_positive_article_for_filter", &FetchMostPositivesByFilter{Repo: repo, LLM: llmClient})
 	executor.Register("get_top_entities", &FetchTopEntitiesFromDBCommand{Repo: repo})
-	executor.Register("get_list_articles", &FilterFromVectorDBByFilter{Repo: repo, LLM: llmClient})
+	executor.Register("filter_by_specific_topic", &FetchArticlesDiscussingSpecificTopic{Repo: repo, LLM: llmClient})
 
 	return executor
 }

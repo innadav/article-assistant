@@ -81,13 +81,13 @@ func TestE2EAllQueries(t *testing.T) {
 		{
 			name:          "Articles discussing economic trends",
 			query:         "What articles discuss economic trends?",
-			expectedTask:  "get_list_articles",
+			expectedTask:  "filter_by_specific_topic",
 			shouldContain: []string{"economic trends", "articles"},
 		},
 		{
 			name:          "Most positive article about AI regulation",
 			query:         "Which article is more positive about the topic of AI regulation?",
-			expectedTask:  "get_article",
+			expectedTask:  "most_positive_article_for_filter",
 			shouldContain: []string{"positive", "AI regulation"},
 		},
 		{

@@ -46,13 +46,13 @@ func (f *validationLLM) PlanQuery(_ context.Context, query string) (*domain.Plan
 
 		// 6. What articles discuss economic trends?
 		"What articles discuss economic trends?": `{
-			"command": "get_list_articles",
+			"command": "filter_by_specific_topic",
 			"args": { "topic": "economic trends" }
 		}`,
 
 		// 7. Which article is more positive about the topic of AI regulation?
 		"Which article is more positive about the topic of AI regulation?": `{
-			"command": "get_article",
+			"command": "most_positive_article_for_filter",
 			"args": { "filter": "positive about the topic of AI regulation" }
 		}`,
 
@@ -67,7 +67,7 @@ func (f *validationLLM) PlanQuery(_ context.Context, query string) (*domain.Plan
 	if !exists {
 		// Default response for unrecognized queries
 		response = `{
-			"command": "get_list_articles",
+			"command": "filter_by_specific_topic",
 			"args": { "topic": "general" }
 		}`
 	}
@@ -178,7 +178,7 @@ func TestValidationQueries(t *testing.T) {
 			name:  "Articles discussing economic trends",
 			query: "What articles discuss economic trends?",
 			expected: domain.Plan{
-				Command: "get_list_articles",
+				Command: "filter_by_specific_topic",
 				Args: map[string]interface{}{
 					"topic": "economic trends",
 				},
@@ -188,7 +188,7 @@ func TestValidationQueries(t *testing.T) {
 			name:  "Most positive article about AI regulation",
 			query: "Which article is more positive about the topic of AI regulation?",
 			expected: domain.Plan{
-				Command: "get_article",
+				Command: "most_positive_article_for_filter",
 				Args: map[string]interface{}{
 					"filter": "positive about the topic of AI regulation",
 				},

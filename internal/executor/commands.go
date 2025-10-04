@@ -320,7 +320,7 @@ func (c *FetchMostPositivesByFilter) Execute(ctx context.Context, plan *domain.P
 		return nil, fmt.Errorf("failed to generate embedding: %v", err)
 	}
 
-	candidates, err := c.Repo.GetArticlesByVectorSearch(ctx, embedding, 10, []string{})
+	candidates, err := c.Repo.GetArticlesByVectorSearch(ctx, embedding, 2, []string{})
 	if err != nil {
 		return nil, err
 	}
@@ -329,10 +329,35 @@ func (c *FetchMostPositivesByFilter) Execute(ctx context.Context, plan *domain.P
 		return errorResponse(plan.Command, "No articles found for the given filter"), nil
 	}
 
-	// Step 2: Find the article with the highest sentiment score
+	// Step 2: LLM validation - filter candidates that actually discuss the topic
+	var validatedCandidates []domain.Article
+	for _, article := range candidates {
+		prompt := fmt.Sprintf("Does this article explicitly discuss %s?\n\nTitle: %s\nSummary: %s\n\nAnswer with only 'YES' or 'NO'.",
+			filter, article.Title, article.Summary)
+
+		fmt.Printf("🔍 LLM Validation Prompt: %s\n", prompt)
+		response, err := c.LLM.GenerateText(ctx, prompt)
+		if err != nil {
+			fmt.Printf("❌ LLM Error: %v\n", err)
+			// Include article if LLM fails
+			validatedCandidates = append(validatedCandidates, article)
+			continue
+		}
+		fmt.Printf("🤖 LLM Response: %s\n", response)
+
+		if strings.Contains(strings.ToUpper(response), "YES") {
+			validatedCandidates = append(validatedCandidates, article)
+		}
+	}
+
+	if len(validatedCandidates) == 0 {
+		return errorResponse(plan.Command, fmt.Sprintf("No articles found that explicitly discuss '%s'", filter)), nil
+	}
+
+	// Step 3: Find the article with the highest sentiment score among validated candidates
 	var best *domain.Article
 	bestScore := -1.0
-	for _, a := range candidates {
+	for _, a := range validatedCandidates {
 		if a.SentimentScore > bestScore {
 			bestScore = a.SentimentScore
 			best = &a
@@ -343,8 +368,8 @@ func (c *FetchMostPositivesByFilter) Execute(ctx context.Context, plan *domain.P
 		return errorResponse(plan.Command, "No articles with sentiment data found"), nil
 	}
 
-	result := fmt.Sprintf("Most positive article about %s:\n%s\nTitle: %s\nSentiment: %s (%.2f)",
-		filter, best.URL, best.Title, best.Sentiment, best.SentimentScore)
+	result := fmt.Sprintf("Most positive article about '%s' (validated from %d candidates):\n%s\nTitle: %s\nSentiment: %s (%.2f)",
+		filter, len(validatedCandidates), best.URL, best.Title, best.Sentiment, best.SentimentScore)
 
 	return &domain.ChatResponse{
 		Answer:       result,
@@ -397,12 +422,12 @@ func (c *FetchTopEntitiesFromDBCommand) Execute(ctx context.Context, plan *domai
 }
 
 // Search Command
-type FilterFromVectorDBByFilter struct {
+type FetchArticlesDiscussingSpecificTopic struct {
 	Repo *repository.Repo
 	LLM  *llm.OpenAIClient
 }
 
-func (c *FilterFromVectorDBByFilter) Execute(ctx context.Context, plan *domain.Plan, query string) (*domain.ChatResponse, error) {
+func (c *FetchArticlesDiscussingSpecificTopic) Execute(ctx context.Context, plan *domain.Plan, query string) (*domain.ChatResponse, error) {
 	// Extract filter from args
 	var filter string
 	if filterVal, ok := plan.Args["filter"]; ok {
@@ -424,10 +449,12 @@ func (c *FilterFromVectorDBByFilter) Execute(ctx context.Context, plan *domain.P
 		return nil, fmt.Errorf("failed to generate embedding: %v", err)
 	}
 
-	arts, err := c.Repo.GetArticlesByVectorSearch(ctx, embedding, 5, []string{})
+	arts, err := c.Repo.GetArticlesByVectorSearch(ctx, embedding, 2, []string{})
 	if err != nil {
 		return nil, err
 	}
+
+	fmt.Printf("🔍 Vector search found %d articles for filter: %s\n", len(arts), filter)
 
 	if len(arts) == 0 {
 		return &domain.ChatResponse{
@@ -436,15 +463,47 @@ func (c *FilterFromVectorDBByFilter) Execute(ctx context.Context, plan *domain.P
 		}, nil
 	}
 
+	// Filter articles using LLM to check if they actually discuss the topic
+	var filteredArticles []domain.Article
+	for _, article := range arts {
+		// Create prompt to check if article discusses the filter topic
+		prompt := fmt.Sprintf("Does this article explicitly discuss %s?\n\nTitle: %s\nSummary: %s\n\nAnswer with only 'YES' or 'NO'.",
+			filter, article.Title, article.Summary)
+
+		fmt.Printf("🔍 LLM Verification Prompt: %s\n", prompt)
+
+		response, err := c.LLM.GenerateText(ctx, prompt)
+		if err != nil {
+			fmt.Printf("❌ LLM Error: %v\n", err)
+			// If LLM call fails, include the article to be safe
+			filteredArticles = append(filteredArticles, article)
+			continue
+		}
+
+		fmt.Printf("🤖 LLM Response: %s\n", response)
+
+		// Check if LLM response indicates the article discusses the topic
+		if strings.Contains(strings.ToUpper(response), "YES") {
+			filteredArticles = append(filteredArticles, article)
+		}
+	}
+
+	if len(filteredArticles) == 0 {
+		return &domain.ChatResponse{
+			Answer: fmt.Sprintf("No articles found that explicitly discuss %s", filter),
+			Task:   plan.Command,
+		}, nil
+	}
+
 	var result strings.Builder
 	result.WriteString(fmt.Sprintf("Articles about %s:\n", filter))
-	for i, a := range arts {
+	for i, a := range filteredArticles {
 		result.WriteString(fmt.Sprintf("%d. %s\n   %s\n", i+1, a.Title, a.URL))
 	}
 
 	// Convert articles to sources
 	var sources []domain.Source
-	for _, a := range arts {
+	for _, a := range filteredArticles {
 		sources = append(sources, domain.Source{
 			ID:    a.ID,
 			URL:   a.URL,

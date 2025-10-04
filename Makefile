@@ -57,9 +57,9 @@ docker-logs:
 # Database commands
 db-reset:
 	@echo "Resetting database..."
-	docker-compose exec postgres psql -U postgres -d article_assistant -c "DROP TABLE IF EXISTS articles;"
-	docker-compose exec postgres psql -U postgres -d article_assistant -c "CREATE TABLE articles (id SERIAL PRIMARY KEY, url TEXT UNIQUE, title TEXT, summary TEXT, embedding vector(1536), entities TEXT[], keywords TEXT[], sentiment TEXT, tone TEXT);"
-	docker-compose exec postgres psql -U postgres -d article_assistant -c "CREATE INDEX articles_embedding_idx ON articles USING ivfflat (embedding vector_cosine_ops);"
+	docker-compose exec postgres psql -U postgres -d article_assistant -c "DROP TABLE IF EXISTS articles CASCADE;"
+	docker-compose exec postgres psql -U postgres -d article_assistant -c "DROP TABLE IF EXISTS chat_cache CASCADE;"
+	docker-compose exec postgres psql -U postgres -d article_assistant -f /docker-entrypoint-initdb.d/init.sql
 
 # Clean commands
 clean:
