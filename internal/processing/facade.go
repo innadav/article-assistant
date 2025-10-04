@@ -21,7 +21,7 @@ type Facade struct {
 	fetcher    *Fetcher
 	analyzer   *Analyzer
 	articleSvc *article.Service
-	repo *repository.ArticleRepository
+	repo       *repository.ArticleRepository
 }
 
 // NewFacade initializes the Facade with all its required subsystem components.
@@ -30,7 +30,7 @@ func NewFacade(llmClient llm.Client, articleSvc *article.Service, repo *reposito
 		fetcher:    NewFetcher(),
 		analyzer:   NewAnalyzer(llmClient),
 		articleSvc: articleSvc,
-		repo: repo,
+		repo:       repo,
 	}
 }
 

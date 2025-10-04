@@ -11,6 +11,7 @@ import (
 	"article-assistant/internal/llm"
 	"article-assistant/internal/processing"
 	"article-assistant/internal/repository"
+
 	_ "github.com/lib/pq"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"

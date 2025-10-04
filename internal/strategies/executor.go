@@ -1,12 +1,12 @@
 package strategies
 
 import (
-	"context"
-	"fmt"
 	"article-assistant/internal/article"
 	"article-assistant/internal/planner"
 	"article-assistant/internal/prompts"
 	"article-assistant/internal/strategies"
+	"context"
+	"fmt"
 )
 
 // Executor's only responsibility is to hold the map of strategies.
@@ -19,8 +19,8 @@ type Executor struct {
 func NewExecutor() *Executor {
 	return &Executor{
 		strategies: map[planner.QueryIntent]planner.IntentStrategy{
-			planner.IntentSummarize: strategies.NewSummarizeStrategy(),
-			planner.IntentKeywords:  strategies.NewKeywordsStrategy(),
+			planner.IntentSummarize:          strategies.NewSummarizeStrategy(),
+			planner.IntentKeywords:           strategies.NewKeywordsStrategy(),
 			planner.IntentSentiment:          strategies.NewSentimentStrategy(),
 			planner.IntentCompareTone:        strategies.NewCompareToneStrategy(),
 			planner.IntentFindTopic:          strategies.NewFindTopicStrategy(),

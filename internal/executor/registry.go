@@ -1,12 +1,12 @@
 package executor
 
 import (
-	"context"
-	"fmt"
 	"article-assistant/internal/article"
 	"article-assistant/internal/planner"
 	"article-assistant/internal/prompts"
 	"article-assistant/internal/strategies"
+	"context"
+	"fmt"
 )
 
 // StrategyExecutor defines the interface for executing query plans.
