@@ -285,6 +285,13 @@ run_single_query_tests() {
         "get_top_entities" \
         "entities"
     
+    # Test 6: Economic trends search
+    test_api_query \
+        "Economic Trends Search Test" \
+        "What articles discuss economic trends?" \
+        "filter_by_specific_topic" \
+        "articles"
+    
     log_info "Single query tests completed: $PASSED_TESTS passed, $FAILED_TESTS failed"
     echo
 }
@@ -329,6 +336,53 @@ run_multi_query_tests() {
     
     # Store test result
     local test_result=$(jq -n --arg name "Article Comparison Test" --arg query "Compare these two articles: $url1 and $url2" --arg expected_task "compare_articles" --arg actual_task "$actual_task" --arg status "$status" --arg duration "$duration" --argjson response "$response" '
+        {
+            name: $name,
+            query: $query,
+            expected_task: $expected_task,
+            actual_task: $actual_task,
+            status: $status,
+            duration: ($duration | tonumber),
+            response: $response
+        }
+    ')
+    
+    TEST_RESULTS+=("$test_result")
+    
+    if [[ "$status" == "PASSED" ]]; then
+        ((PASSED_TESTS++))
+    fi
+    ((TOTAL_TESTS++))
+    
+    echo
+    
+    # Test 2: Tone differences between sources
+    log_test "Test: Tone Differences Test"
+    
+    start_time=$(date +%s.%N)
+    
+    response=$(curl -s -X POST "$API_BASE/chat" \
+        -H "Content-Type: application/json" \
+        -d "{\"query\": \"What are the key differences in tone between $url1 and $url2\"}")
+    
+    end_time=$(date +%s.%N)
+    duration=$(echo "$end_time - $start_time" | bc)
+    
+    actual_task=$(echo "$response" | jq -r '.task // "unknown"')
+    
+    if [[ "$actual_task" == "ton_key_differences" ]]; then
+        log_success "✅ Task correct: ton_key_differences"
+        status="PASSED"
+    else
+        log_error "❌ Wrong task. Expected: ton_key_differences, Got: $actual_task"
+        status="FAILED"
+        ((FAILED_TESTS++))
+    fi
+    
+    log_info "⏱️  Response time: ${duration}s"
+    
+    # Store test result
+    test_result=$(jq -n --arg name "Tone Differences Test" --arg query "What are the key differences in tone between $url1 and $url2" --arg expected_task "ton_key_differences" --arg actual_task "$actual_task" --arg status "$status" --arg duration "$duration" --argjson response "$response" '
         {
             name: $name,
             query: $query,

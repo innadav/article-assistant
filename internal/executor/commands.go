@@ -11,7 +11,8 @@ import (
 
 // Summary Command
 type SummaryCommand struct {
-	Repo *repository.Repo
+	Repo              *repository.Repo
+	ResponseGenerator *ResponseGenerator
 }
 
 func (c *SummaryCommand) Execute(ctx context.Context, plan *domain.Plan, query string) (*domain.ChatResponse, error) {
@@ -24,33 +25,20 @@ func (c *SummaryCommand) Execute(ctx context.Context, plan *domain.Plan, query s
 			}
 		}
 	} else {
-		return &domain.ChatResponse{
-			Answer: "Article URL required for summary",
-			Task:   plan.Command,
-		}, nil
+		return c.ResponseGenerator.CreateErrorResponse(plan.Command, "Article URL required for summary"), nil
 	}
 
 	// Get article by URL
 	articles, err := c.Repo.GetArticlesByURLs(ctx, []string{targetURL})
 	if err != nil {
-		return &domain.ChatResponse{
-			Answer: "Error retrieving article: " + targetURL,
-			Task:   plan.Command,
-		}, nil
+		return c.ResponseGenerator.CreateErrorResponse(plan.Command, "Error retrieving article: "+targetURL), nil
 	}
 
 	if len(articles) == 0 {
-		return &domain.ChatResponse{
-			Answer: "Article not found: " + targetURL,
-			Task:   plan.Command,
-		}, nil
+		return c.ResponseGenerator.CreateErrorResponse(plan.Command, "Article not found: "+targetURL), nil
 	}
 
-	return &domain.ChatResponse{
-		Answer:       articles[0].Summary,
-		ResponseType: domain.ResponseText,
-		Task:         plan.Command,
-	}, nil
+	return c.ResponseGenerator.CreateSingleArticleResponse(ctx, articles[0].Summary, plan.Command, &articles[0])
 }
 
 // Helper functions
@@ -68,23 +56,16 @@ func extractURLs(plan *domain.Plan) []string {
 	return targetURLs
 }
 
-func errorResponse(command, message string) *domain.ChatResponse {
-	return &domain.ChatResponse{
-		Answer:       message,
-		ResponseType: domain.ResponseText,
-		Task:         command,
-	}
-}
-
 // KeywordsOrTopics Command
 type FetchKeywordsOrTopicsCommand struct {
-	Repo *repository.Repo
+	Repo              *repository.Repo
+	ResponseGenerator *ResponseGenerator
 }
 
 func (c *FetchKeywordsOrTopicsCommand) Execute(ctx context.Context, plan *domain.Plan, _ string) (*domain.ChatResponse, error) {
 	targetURLs := extractURLs(plan)
 	if len(targetURLs) == 0 {
-		return errorResponse(plan.Command, "URLs required to extract keywords/topics"), nil
+		return c.ResponseGenerator.CreateErrorResponse(plan.Command, "URLs required to extract keywords/topics"), nil
 	}
 
 	keywords, topics, err := c.Repo.GetKeywordsAndTopics(ctx, targetURLs, 5)
@@ -93,7 +74,7 @@ func (c *FetchKeywordsOrTopicsCommand) Execute(ctx context.Context, plan *domain
 	}
 
 	if len(keywords) == 0 && len(topics) == 0 {
-		return errorResponse(plan.Command, "No keywords/topics found"), nil
+		return c.ResponseGenerator.CreateErrorResponse(plan.Command, "No keywords/topics found"), nil
 	}
 
 	var result strings.Builder
@@ -113,23 +94,20 @@ func (c *FetchKeywordsOrTopicsCommand) Execute(ctx context.Context, plan *domain
 		}
 	}
 
-	return &domain.ChatResponse{
-		Answer:       result.String(),
-		ResponseType: domain.ResponseText,
-		Task:         plan.Command,
-	}, nil
+	return c.ResponseGenerator.CreateTextResponse(ctx, result.String(), plan.Command, targetURLs)
 }
 
 // Sentiment Command
 type FetchSentimentCommand struct {
-	Repo *repository.Repo
+	Repo              *repository.Repo
+	ResponseGenerator *ResponseGenerator
 }
 
 func (c *FetchSentimentCommand) Execute(ctx context.Context, plan *domain.Plan, query string) (*domain.ChatResponse, error) {
 	// Extract URLs from args
 	targetURLs := extractURLs(plan)
 	if len(targetURLs) == 0 {
-		return errorResponse(plan.Command, "URLs required for sentiment analysis"), nil
+		return c.ResponseGenerator.CreateErrorResponse(plan.Command, "URLs required for sentiment analysis"), nil
 	}
 
 	// Fetch articles by URLs to get sentiment data
@@ -139,7 +117,7 @@ func (c *FetchSentimentCommand) Execute(ctx context.Context, plan *domain.Plan, 
 	}
 
 	if len(arts) == 0 {
-		return errorResponse(plan.Command, "No articles found for the provided URLs"), nil
+		return c.ResponseGenerator.CreateErrorResponse(plan.Command, "No articles found for the provided URLs"), nil
 	}
 
 	var sentiments []string
@@ -162,8 +140,19 @@ func (c *FetchSentimentCommand) Execute(ctx context.Context, plan *domain.Plan, 
 	result := fmt.Sprintf("Overall sentiment: %s (%.2f)\nArticles:\n%s",
 		overallSentiment, avgScore, strings.Join(sentiments, "\n"))
 
+	// Create sources from articles
+	var sources []domain.Source
+	for _, article := range arts {
+		sources = append(sources, domain.Source{
+			ID:    article.ID,
+			URL:   article.URL,
+			Title: article.Title,
+		})
+	}
+
 	return &domain.ChatResponse{
 		Answer:       result,
+		Sources:      sources,
 		ResponseType: domain.ResponseText,
 		Task:         plan.Command,
 	}, nil
@@ -171,8 +160,9 @@ func (c *FetchSentimentCommand) Execute(ctx context.Context, plan *domain.Plan, 
 
 // Compare Command
 type CompareCommand struct {
-	Repo *repository.Repo
-	LLM  *llm.OpenAIClient
+	Repo              *repository.Repo
+	LLM               *llm.OpenAIClient
+	ResponseGenerator *ResponseGenerator
 }
 
 func (c *CompareCommand) Execute(ctx context.Context, plan *domain.Plan, query string) (*domain.ChatResponse, error) {
@@ -225,8 +215,19 @@ func (c *CompareCommand) Execute(ctx context.Context, plan *domain.Plan, query s
 		}, nil
 	}
 
+	// Create sources from articles
+	var sources []domain.Source
+	for _, article := range articles {
+		sources = append(sources, domain.Source{
+			ID:    article.ID,
+			URL:   article.URL,
+			Title: article.Title,
+		})
+	}
+
 	return &domain.ChatResponse{
 		Answer:       comparison,
+		Sources:      sources,
 		ResponseType: domain.ResponseText,
 		Task:         plan.Command,
 	}, nil
@@ -234,8 +235,9 @@ func (c *CompareCommand) Execute(ctx context.Context, plan *domain.Plan, query s
 
 // Tone Command
 type ToneKeyDfferencesCommand struct {
-	Repo *repository.Repo
-	LLM  *llm.OpenAIClient
+	Repo              *repository.Repo
+	LLM               *llm.OpenAIClient
+	ResponseGenerator *ResponseGenerator
 }
 
 func (c *ToneKeyDfferencesCommand) Execute(ctx context.Context, plan *domain.Plan, query string) (*domain.ChatResponse, error) {
@@ -288,8 +290,19 @@ func (c *ToneKeyDfferencesCommand) Execute(ctx context.Context, plan *domain.Pla
 		}, nil
 	}
 
+	// Create sources from articles
+	var sources []domain.Source
+	for _, article := range articles {
+		sources = append(sources, domain.Source{
+			ID:    article.ID,
+			URL:   article.URL,
+			Title: article.Title,
+		})
+	}
+
 	return &domain.ChatResponse{
 		Answer:       toneDiff,
+		Sources:      sources,
 		ResponseType: domain.ResponseText,
 		Task:         plan.Command,
 	}, nil
@@ -297,8 +310,9 @@ func (c *ToneKeyDfferencesCommand) Execute(ctx context.Context, plan *domain.Pla
 
 // MorePositive Command
 type FetchMostPositivesByFilter struct {
-	Repo *repository.Repo
-	LLM  *llm.OpenAIClient
+	Repo              *repository.Repo
+	LLM               *llm.OpenAIClient
+	ResponseGenerator *ResponseGenerator
 }
 
 func (c *FetchMostPositivesByFilter) Execute(ctx context.Context, plan *domain.Plan, query string) (*domain.ChatResponse, error) {
@@ -311,7 +325,7 @@ func (c *FetchMostPositivesByFilter) Execute(ctx context.Context, plan *domain.P
 	}
 
 	if filter == "" {
-		return errorResponse(plan.Command, "Filter required for finding most positive article"), nil
+		return c.ResponseGenerator.CreateErrorResponse(plan.Command, "Filter required for finding most positive article"), nil
 	}
 
 	// Step 1: Embed the filter and find similar articles
@@ -326,7 +340,7 @@ func (c *FetchMostPositivesByFilter) Execute(ctx context.Context, plan *domain.P
 	}
 
 	if len(candidates) == 0 {
-		return errorResponse(plan.Command, "No articles found for the given filter"), nil
+		return c.ResponseGenerator.CreateErrorResponse(plan.Command, "No articles found for the given filter"), nil
 	}
 
 	// Step 2: LLM validation - filter candidates that actually discuss the topic
@@ -351,7 +365,7 @@ func (c *FetchMostPositivesByFilter) Execute(ctx context.Context, plan *domain.P
 	}
 
 	if len(validatedCandidates) == 0 {
-		return errorResponse(plan.Command, fmt.Sprintf("No articles found that explicitly discuss '%s'", filter)), nil
+		return c.ResponseGenerator.CreateErrorResponse(plan.Command, fmt.Sprintf("No articles found that explicitly discuss '%s'", filter)), nil
 	}
 
 	// Step 3: Find the article with the highest sentiment score among validated candidates
@@ -365,14 +379,24 @@ func (c *FetchMostPositivesByFilter) Execute(ctx context.Context, plan *domain.P
 	}
 
 	if best == nil {
-		return errorResponse(plan.Command, "No articles with sentiment data found"), nil
+		return c.ResponseGenerator.CreateErrorResponse(plan.Command, "No articles with sentiment data found"), nil
 	}
 
 	result := fmt.Sprintf("Most positive article about '%s' (validated from %d candidates):\n%s\nTitle: %s\nSentiment: %s (%.2f)",
 		filter, len(validatedCandidates), best.URL, best.Title, best.Sentiment, best.SentimentScore)
 
+	// Create sources from the best article
+	sources := []domain.Source{
+		{
+			ID:    best.ID,
+			URL:   best.URL,
+			Title: best.Title,
+		},
+	}
+
 	return &domain.ChatResponse{
 		Answer:       result,
+		Sources:      sources,
 		ResponseType: domain.ResponseText,
 		Task:         plan.Command,
 	}, nil
@@ -380,7 +404,8 @@ func (c *FetchMostPositivesByFilter) Execute(ctx context.Context, plan *domain.P
 
 // TopEntities Command
 type FetchTopEntitiesFromDBCommand struct {
-	Repo *repository.Repo
+	Repo              *repository.Repo
+	ResponseGenerator *ResponseGenerator
 }
 
 func (c *FetchTopEntitiesFromDBCommand) Execute(ctx context.Context, plan *domain.Plan, query string) (*domain.ChatResponse, error) {
@@ -414,8 +439,28 @@ func (c *FetchTopEntitiesFromDBCommand) Execute(ctx context.Context, plan *domai
 		result.WriteString(fmt.Sprintf("%d. %s (confidence: %.2f)\n", i+1, e.Name, e.Confidence))
 	}
 
+	// For top entities, we don't have specific article sources, but we can indicate
+	// that this is aggregated data from all articles (or filtered articles)
+	var sources []domain.Source
+	if len(targetURLs) > 0 {
+		// If URLs were provided, get those articles as sources
+		articles, err := c.Repo.GetArticlesByURLs(ctx, targetURLs)
+		if err == nil {
+			for _, article := range articles {
+				sources = append(sources, domain.Source{
+					ID:    article.ID,
+					URL:   article.URL,
+					Title: article.Title,
+				})
+			}
+		}
+	}
+	// If no URLs provided or error getting articles, sources will be empty
+	// which indicates this is aggregated data from all articles
+
 	return &domain.ChatResponse{
 		Answer:       result.String(),
+		Sources:      sources,
 		ResponseType: domain.ResponseText,
 		Task:         plan.Command,
 	}, nil
@@ -423,8 +468,9 @@ func (c *FetchTopEntitiesFromDBCommand) Execute(ctx context.Context, plan *domai
 
 // Search Command
 type FetchArticlesDiscussingSpecificTopic struct {
-	Repo *repository.Repo
-	LLM  *llm.OpenAIClient
+	Repo              *repository.Repo
+	LLM               *llm.OpenAIClient
+	ResponseGenerator *ResponseGenerator
 }
 
 func (c *FetchArticlesDiscussingSpecificTopic) Execute(ctx context.Context, plan *domain.Plan, query string) (*domain.ChatResponse, error) {
