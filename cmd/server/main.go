@@ -2,171 +2,107 @@ package main
 
 import (
 	"context"
-	"database/sql"
-	"encoding/json"
-	"fmt"
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
-	"article-assistant/internal/cache"
-	"article-assistant/internal/domain"
+	"article-assistant/internal/article"
+	"article-assistant/internal/config"
 	"article-assistant/internal/executor"
-	"article-assistant/internal/ingest"
 	"article-assistant/internal/llm"
+	"article-assistant/internal/planner"
+	"article-assistant/internal/processing"
+	"article-assistant/internal/prompts"
 	"article-assistant/internal/repository"
-	"article-assistant/internal/startup"
-
-	_ "github.com/lib/pq"
+	"article-assistant/internal/transport/http/handler"
 )
 
 func main() {
-	// Database connection
-	dbURL := os.Getenv("DATABASE_URL")
-	if dbURL == "" {
-		dbURL = "postgres://postgres:postgres@localhost:5433/article_assistant?sslmode=disable"
-	}
-
-	db, err := sql.Open("postgres", dbURL)
-	if err != nil {
-		log.Fatal("Failed to connect to database:", err)
-	}
-	defer db.Close()
-
-	// Initialize components
-	repo := repository.NewRepo(db)
-	cacheService := cache.NewService(repo)
-
-	apiKey := os.Getenv("OPENAI_API_KEY")
-	if apiKey == "" {
-		log.Fatal("OPENAI_API_KEY environment variable is required")
-	}
-
-	// Get model configuration from environment variable
-	model := os.Getenv("OPENAI_MODEL")
-	if model == "" {
-		model = "gpt-4-turbo" // Default model
-		log.Printf("🔧 Using default model: %s (set OPENAI_MODEL to override)", model)
-	} else {
-		log.Printf("🔧 Using configured model: %s", model)
-	}
-
-	llmClient := llm.New(apiKey, model)
-
-	ingestService := &ingest.Service{
-		Repo: repo,
-		LLM:  llmClient,
-	}
-
-	// Start cache cleanup background task
 	ctx := context.Background()
-	cacheService.StartCacheCleanup(ctx, 1*time.Hour) // Clean every hour
 
-	// Ingest articles on startup
-	articlesFile := "resources/data/startup_articles.txt"
-	if err := startup.LoadArticlesOnStartup(ingestService, articlesFile); err != nil {
-		log.Printf("⚠️  Startup ingestion failed: %v", err)
-		// Continue server startup even if ingestion fails
+	// 1. Load Configuration
+	cfg := config.New()
+	log.Printf("Configuration loaded. LLM Provider: %s, Prompt Version: %s", cfg.LLMProvider, cfg.PromptVersion)
+
+	// 2. Initialize Core Components
+	llmClient, err := llm.NewClientFactory(ctx, cfg)
+	if err != nil {
+		log.Fatalf("Failed to create LLM client: %v", err)
+	}
+	promptLoader, err := prompts.NewLoader(cfg.PromptVersion)
+	if err != nil {
+		log.Fatalf("Failed to load prompts: %v", err)
+	}
+	promptFactory, err := prompts.NewFactory(prompts.ModelGemini15Flash, promptLoader)
+	if err != nil {
+		log.Fatalf("Failed to create prompt factory: %v", err)
 	}
 
-	// Ingest endpoint
-	http.HandleFunc("/ingest", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.Header().Set("Access-Control-Allow-Origin", "*")
+	// Initialize the PostgreSQL repository
+	repo, err := repository.NewPostgresRepo(cfg.DatabaseURL)
+	if err != nil {
+		log.Fatalf("Failed to initialize PostgreSQL repository: %v", err)
+	}
 
-		if r.Method != "POST" {
-			http.Error(w, "Method not allowed", 405)
-			return
+	// 3. Initialize Services
+	// These must be created in the correct order based on their dependencies.
+	articleSvc := article.NewService(llmClient)
+	plannerSvc := planner.NewService(llmClient, promptFactory, articleSvc)
+	processingFacade := processing.NewFacade(llmClient, articleSvc, repo)
+	strategyExecutor := executor.NewRegistry() // Corrected to just Executor
+
+	// 4. Initialize the Transport Layer
+	apiHandler := handler.NewHandler(
+		articleSvc,
+		plannerSvc,
+		strategyExecutor,
+		promptFactory,
+		processingFacade,
+	)
+
+	// 4.5. Start Background Processes
+	go func() {
+		log.Println("Processing initial articles in the background...")
+		for _, url := range cfg.InitialArticleURLs {
+			_, err := processingFacade.AddNewArticle(context.Background(), url)
+			if err != nil {
+				log.Printf("Failed to process initial URL %s: %v", url, err)
+			}
 		}
+		log.Println("Initial article processing complete.")
+	}()
 
-		var req struct {
-			URL string `json:"url"`
+	// 5. Start HTTP Server
+	server := &http.Server{
+		Addr:         ":" + cfg.Port,
+		Handler:      apiHandler.Routes(), // Corrected to use the Routes method
+		ReadTimeout:  5 * time.Second,
+		WriteTimeout: 10 * time.Second,
+		IdleTimeout:  15 * time.Second,
+	}
+
+	go func() {
+		log.Printf("Server starting on port %s", cfg.Port)
+		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("Could not listen on %s: %v", cfg.Port, err)
 		}
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			http.Error(w, "Invalid request body", 400)
-			return
-		}
+	}()
 
-		ctx := context.Background()
-		err := ingestService.IngestURL(ctx, req.URL)
-		if err != nil {
-			http.Error(w, fmt.Sprintf("Failed to ingest URL: %v", err), 500)
-			return
-		}
+	// 6. Graceful Shutdown
+	signalChan := make(chan os.Signal, 1)
+	signal.Notify(signalChan, syscall.SIGINT, syscall.SIGTERM)
+	<-signalChan
 
-		json.NewEncoder(w).Encode(map[string]string{"status": "success", "message": "URL ingested successfully"})
-	})
+	log.Println("Shutting down server...")
 
-	// Chat endpoint - uses simple LLM planner + executor with caching
-	http.HandleFunc("/chat", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.Header().Set("Access-Control-Allow-Origin", "*")
+	downCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
 
-		if r.Method != "POST" {
-			http.Error(w, "Method not allowed", 405)
-			return
-		}
-
-		var req domain.ChatRequest
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			http.Error(w, "Invalid request body", 400)
-			return
-		}
-
-		ctx := context.Background()
-
-		// Check cache first
-		cachedResponse, err := cacheService.GetCachedResponse(ctx, req)
-		if err != nil {
-			log.Printf("⚠️  Cache lookup failed: %v", err)
-		} else if cachedResponse != nil {
-			// Return cached response
-			log.Printf("💾 Returning cached response for query: %s", req.Query)
-			json.NewEncoder(w).Encode(cachedResponse)
-			return
-		}
-
-		// Cache miss - process request
-		log.Printf("🔄 Processing new request: %s", req.Query)
-
-		// Step 1: Create execution plan using LLM
-		plan, err := llmClient.PlanQuery(ctx, req.Query)
-		if err != nil {
-			http.Error(w, fmt.Sprintf("Failed to create query plan: %v", err), 500)
-			return
-		}
-
-		// Debug: Log the plan
-		log.Printf("Generated plan: %+v", plan)
-
-		// Step 2: Execute the plan
-		commandExecutor := executor.NewExecutorWithCommands(repo, llmClient)
-		response, err := commandExecutor.Execute(ctx, plan, req.Query)
-		if err != nil {
-			http.Error(w, fmt.Sprintf("Failed to execute query plan: %v", err), 500)
-			return
-		}
-
-		// Add plan to response for debugging
-		response.Plan = plan
-		log.Printf("Response with plan: %+v", response)
-
-		// Cache the response
-		if err := cacheService.SetCachedResponse(ctx, req, response); err != nil {
-			log.Printf("⚠️  Failed to cache response: %v", err)
-		}
-
-		json.NewEncoder(w).Encode(response)
-	})
-
-	// Health check
-	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]string{"status": "healthy"})
-	})
-
-	log.Println("🚀 Article Assistant Server with RAG Router")
-	log.Println("Listening on :8080")
-	log.Fatal(http.ListenAndServe(":8080", nil))
+	if err := server.Shutdown(downCtx); err != nil {
+		log.Fatalf("Server shutdown failed: %v", err)
+	}
+	log.Println("Server gracefully stopped")
 }

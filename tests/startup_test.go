@@ -1,15 +1,32 @@
 package tests
 
 import (
-	"bufio"
 	"context"
+	"errors"
 	"os"
 	"testing"
 
-	"article-assistant/internal/ingest"
 	"article-assistant/internal/startup"
 )
 
+// --- Mock Ingest Service ---
+// This mock is needed to test the ArticleLoader.
+type mockIngestService struct {
+	IngestURLFunc func(ctx context.Context, url string) error
+	callCount     int
+	ingestedURLs  []string
+}
+
+func (m *mockIngestService) IngestURL(ctx context.Context, url string) error {
+	m.callCount++
+	m.ingestedURLs = append(m.ingestedURLs, url)
+	if m.IngestURLFunc != nil {
+		return m.IngestURLFunc(ctx, url)
+	}
+	return nil
+}
+
+// --- Mock Loader Tests (Unchanged but included for completeness) ---
 func TestMockLoader(t *testing.T) {
 	mockLoader := startup.NewMockLoader()
 
@@ -49,98 +66,137 @@ func TestMockLoader(t *testing.T) {
 	}
 }
 
-func TestArticleLoader_LoadData_FileNotFound(t *testing.T) {
-	// Create a mock ingest service (we don't need a real one for this test)
-	var ingestService *ingest.Service = nil
-	loader := startup.NewArticleLoader(ingestService)
+// --- Article Loader Tests (Corrected and Completed) ---
 
-	// Test with non-existent file
+func TestArticleLoader_LoadData_FileNotFound(t *testing.T) {
+	// ARRANGE
+	mockIngest := &mockIngestService{}
+	loader := startup.NewArticleLoader(mockIngest)
+
+	// ACT
 	err := loader.LoadData(context.Background(), "non-existent-file.txt")
-	if err != nil {
-		t.Errorf("Expected no error for non-existent file, got: %v", err)
+
+	// ASSERT
+	// The function should return an error when the file doesn't exist.
+	if err == nil {
+		t.Error("Expected an error for a non-existent file, but got nil")
 	}
 }
 
 func TestArticleLoader_LoadData_EmptyFile(t *testing.T) {
-	// Create a temporary empty file
+	// ARRANGE
 	tmpFile, err := os.CreateTemp("", "empty-*.txt")
 	if err != nil {
 		t.Fatalf("Failed to create temp file: %v", err)
 	}
 	defer os.Remove(tmpFile.Name())
 
-	// Create a mock ingest service
-	var ingestService *ingest.Service = nil
-	loader := startup.NewArticleLoader(ingestService)
+	mockIngest := &mockIngestService{}
+	loader := startup.NewArticleLoader(mockIngest)
 
-	// Test with empty file
+	// ACT
 	err = loader.LoadData(context.Background(), tmpFile.Name())
+
+	// ASSERT
 	if err != nil {
 		t.Errorf("Expected no error for empty file, got: %v", err)
 	}
+	// Verify that the ingest service was not called for an empty file.
+	if mockIngest.callCount != 0 {
+		t.Errorf("Expected IngestURL to be called 0 times, but got %d", mockIngest.callCount)
+	}
 }
 
-func TestArticleLoader_LoadData_FileWithComments(t *testing.T) {
-	// Create a temporary file with comments
-	tmpFile, err := os.CreateTemp("", "comments-*.txt")
+func TestArticleLoader_LoadData_Success(t *testing.T) {
+	// ARRANGE
+	tmpFile, err := os.CreateTemp("", "articles-*.txt")
 	if err != nil {
 		t.Fatalf("Failed to create temp file: %v", err)
 	}
 	defer os.Remove(tmpFile.Name())
 
-	// Write test content with comments
-	content := `# This is a comment
+	content := `
+# This is a comment and should be ignored.
 https://example.com/article1
-# Another comment
-https://example.com/article2
 
-# Empty line above
-https://example.com/article3`
+  https://example.com/article2  # This URL has whitespace
+# Another comment.
 
+https://example.com/article3
+`
 	if _, err := tmpFile.WriteString(content); err != nil {
 		t.Fatalf("Failed to write to temp file: %v", err)
 	}
 	tmpFile.Close()
 
-	// Test file parsing by reading the file manually to verify the content
-	// This tests that our test setup is correct
-	file, err := os.Open(tmpFile.Name())
+	mockIngest := &mockIngestService{}
+	loader := startup.NewArticleLoader(mockIngest)
+
+	// ACT
+	err = loader.LoadData(context.Background(), tmpFile.Name())
+
+	// ASSERT
 	if err != nil {
-		t.Fatalf("Failed to reopen temp file: %v", err)
-	}
-	defer file.Close()
-
-	// Read and verify the content
-	scanner := bufio.NewScanner(file)
-	var lines []string
-	for scanner.Scan() {
-		lines = append(lines, scanner.Text())
+		t.Fatalf("LoadData failed unexpectedly: %v", err)
 	}
 
-	if err := scanner.Err(); err != nil {
-		t.Fatalf("Error reading file: %v", err)
+	// Verify that the IngestURL method was called exactly 3 times.
+	if mockIngest.callCount != 3 {
+		t.Errorf("Expected IngestURL to be called 3 times, but got %d", mockIngest.callCount)
 	}
 
-	// Verify we have the expected lines
-	expectedLines := []string{
-		"# This is a comment",
+	// Verify that the correct URLs were passed to the ingest service.
+	expectedURLs := []string{
 		"https://example.com/article1",
-		"# Another comment",
 		"https://example.com/article2",
-		"",
-		"# Empty line above",
 		"https://example.com/article3",
 	}
 
-	if len(lines) != len(expectedLines) {
-		t.Errorf("Expected %d lines, got %d", len(expectedLines), len(lines))
+	if len(mockIngest.ingestedURLs) != len(expectedURLs) {
+		t.Fatalf("Expected %d URLs to be ingested, but got %d", len(expectedURLs), len(mockIngest.ingestedURLs))
 	}
 
-	for i, expected := range expectedLines {
-		if i < len(lines) && lines[i] != expected {
-			t.Errorf("Line %d: expected '%s', got '%s'", i, expected, lines[i])
+	for i, expected := range expectedURLs {
+		if mockIngest.ingestedURLs[i] != expected {
+			t.Errorf("URL %d: expected '%s', got '%s'", i, expected, mockIngest.ingestedURLs[i])
 		}
 	}
+}
 
-	t.Log("File parsing test completed successfully - file content verified")
+func TestArticleLoader_LoadData_IngestError(t *testing.T) {
+	// ARRANGE
+	tmpFile, err := os.CreateTemp("", "error-*.txt")
+	if err != nil {
+		t.Fatalf("Failed to create temp file: %v", err)
+	}
+	defer os.Remove(tmpFile.Name())
+
+	content := "https://example.com/article1\nhttps://example.com/fail"
+	if _, err := tmpFile.WriteString(content); err != nil {
+		t.Fatalf("Failed to write to temp file: %v", err)
+	}
+	tmpFile.Close()
+
+	// Configure the mock to return an error for a specific URL.
+	mockIngest := &mockIngestService{
+		IngestURLFunc: func(ctx context.Context, url string) error {
+			if url == "https://example.com/fail" {
+				return errors.New("ingest failed")
+			}
+			return nil
+		},
+	}
+	loader := startup.NewArticleLoader(mockIngest)
+
+	// ACT
+	err = loader.LoadData(context.Background(), tmpFile.Name())
+
+	// ASSERT
+	// The function should return the error from the ingest service.
+	if err == nil {
+		t.Error("Expected an error from the ingest service, but got nil")
+	}
+	if err.Error() != "ingest failed" {
+		t.Errorf("Expected error 'ingest failed', got: '%v'", err)
+	}
 }

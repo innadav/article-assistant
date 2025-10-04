@@ -1,24 +1,52 @@
 package executor
 
 import (
-	"article-assistant/internal/llm"
-	"article-assistant/internal/repository"
+	"context"
+	"fmt"
+	"article-assistant/internal/article"
+	"article-assistant/internal/planner"
+	"article-assistant/internal/prompts"
+	"article-assistant/internal/strategies"
 )
 
-// NewExecutorWithCommands creates a new executor with all commands registered
-func NewExecutorWithCommands(repo *repository.Repo, llmClient *llm.OpenAIClient) *Executor {
-	executor := NewExecutor()
-	responseGenerator := NewResponseGenerator(repo)
+// StrategyExecutor defines the interface for executing query plans.
+type StrategyExecutor interface {
+	ExecutePlan(ctx context.Context, plan *planner.QueryPlan, articleSvc *article.Service, promptFactory *prompts.Factory) (string, error)
+}
 
-	// Register all commands
-	executor.Register("summary", &SummaryCommand{Repo: repo, ResponseGenerator: responseGenerator})
-	executor.Register("keywords_or_topics", &FetchKeywordsOrTopicsCommand{Repo: repo, ResponseGenerator: responseGenerator})
-	executor.Register("get_sentiment", &FetchSentimentCommand{Repo: repo, ResponseGenerator: responseGenerator})
-	executor.Register("compare_articles", &CompareCommand{Repo: repo, LLM: llmClient, ResponseGenerator: responseGenerator})
-	executor.Register("ton_key_differences", &ToneKeyDfferencesCommand{Repo: repo, LLM: llmClient, ResponseGenerator: responseGenerator})
-	executor.Register("most_positive_article_for_filter", &FetchMostPositivesByFilter{Repo: repo, LLM: llmClient, ResponseGenerator: responseGenerator})
-	executor.Register("get_top_entities", &FetchTopEntitiesFromDBCommand{Repo: repo, ResponseGenerator: responseGenerator})
-	executor.Register("filter_by_specific_topic", &FetchArticlesDiscussingSpecificTopic{Repo: repo, LLM: llmClient, ResponseGenerator: responseGenerator})
+// Executor's only responsibility is to hold the map of strategies.
+// It no longer holds instances of other services.
+type Registry struct {
+	strategies map[planner.QueryIntent]strategies.IntentStrategy
+}
 
-	return executor
+// NewRegistry is now much simpler. It just creates and populates the strategy map.
+func NewRegistry() *Registry {
+	return &Registry{
+		strategies: map[planner.QueryIntent]strategies.IntentStrategy{
+			planner.IntentSummarize: strategies.NewSummarizeStrategy(),
+			planner.IntentKeywords:  strategies.NewKeywordsStrategy(),
+			// planner.IntentSentiment:          strategies.NewSentimentStrategy(),
+			// planner.IntentCompareTone:        strategies.NewCompareToneStrategy(),
+			// planner.IntentFindTopic:          strategies.NewFindTopicStrategy(),
+			// planner.IntentComparePositive:    NewComparePositivityStrategy(),
+			// planner.IntentFindCommonEntities: NewFindCommonEntitiesStrategy(),
+		},
+	}
+}
+
+// ExecutePlan now accepts the dependencies it needs to pass down to the strategies.
+// This makes the Executor's role purely about routing.
+func (e *Registry) ExecutePlan(
+	ctx context.Context,
+	plan *planner.QueryPlan,
+	articleSvc *article.Service,
+	promptFactory *prompts.Factory,
+) (string, error) {
+	strategy, ok := e.strategies[plan.Intent]
+	if !ok {
+		return fmt.Sprintf("I'm sorry, I don't know how to handle the intent: %s", plan.Intent), nil
+	}
+	// It passes the dependencies on to the chosen strategy.
+	return strategy.Execute(ctx, plan, articleSvc, promptFactory)
 }

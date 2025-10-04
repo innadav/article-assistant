@@ -1,35 +1,68 @@
-services:
-  postgres:
-    image: pgvector/pgvector:pg16
-    ports:
-      - "5433:5432"
-    environment:
-      POSTGRES_DB: article_assistant
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-      - ./resources/sql/init.sql:/docker-entrypoint-initdb.d/init.sql
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
+version: '3.8'
 
-  app:
-    build: .
+services:
+  # The Go Application
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
     ports:
       - "8080:8080"
     environment:
-      - DATABASE_URL=postgres://postgres:postgres@postgres:5432/article_assistant?sslmode=disable
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
-      - OPENAI_MODEL=${OPENAI_MODEL:-gpt-4-turbo}
-    volumes:
-      - ./resources/data:/app/resources/data
+      # --- Database Configuration ---
+      - DB_HOST=postgres
+      - DB_USER=user
+      - DB_PASSWORD=password
+      - DB_NAME=articledb
+      - DB_PORT=5432
+      # --- Weaviate Configuration ---
+      - WEAVIATE_HOST=weaviate
+      - WEAVIATE_PORT=8080
+      # --- LLM Configuration ---
+      - GEMINI_API_KEY=${GEMINI_API_KEY} # Pass the key from your local env
+      - LLM_PROVIDER=google
+      - PROMPT_VERSION=v1
     depends_on:
-      postgres:
-        condition: service_healthy
-    restart: unless-stopped
+      - postgres
+      - weaviate
+    networks:
+      - article-net
+
+  # PostgreSQL Database for Metadata
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      - POSTGRES_USER=user
+      - POSTGRES_PASSWORD=password
+      - POSTGRES_DB=articledb
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./scripts/init.sql:/docker-entrypoint-initdb.d/init.sql
+    ports:
+      - "5433:5432" # Expose on 5433 to avoid local conflicts
+    networks:
+      - article-net
+
+  # Weaviate Vector Database
+  weaviate:
+    image: cr.weaviate.io/semitechnologies/weaviate:1.24.1
+    ports:
+      - "8081:8080" # Expose on 8081 to avoid local conflicts
+    environment:
+      - QUERY_DEFAULTS_LIMIT=25
+      - AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true
+      - PERSISTENCE_DATA_PATH=/var/lib/weaviate
+      - DEFAULT_VECTORIZER_MODULE=none # We will provide our own vectors
+      - CLUSTER_HOSTNAME=node1
+    volumes:
+      - weaviate_data:/var/lib/weaviate
+    networks:
+      - article-net
+
+networks:
+  article-net:
+    driver: bridge
 
 volumes:
   postgres_data:
+  weaviate_data:
